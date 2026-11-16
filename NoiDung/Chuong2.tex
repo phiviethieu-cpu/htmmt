@@ -1,0 +1,96 @@
+\chaptercustom{2}{CƠ SỞ LÝ THUYẾT}
+\setcounter{section}{2}
+\setcounter{equation}{0}
+Chương này tóm tắt các kiến thức cần cho việc thiết kế thí nghiệm và giải thích kết quả: quy trình một vòng Federated Learning và lưu lượng mà nó sinh ra, kiến trúc Edge--Cloud, bốn thành phần độ trễ của một gói tin, các cơ chế của TCP ảnh hưởng tới việc truyền một khối dữ liệu lớn, và cách Mininet giả lập băng thông, độ trễ.
+
+\subsection{Federated Learning và lưu lượng đồng bộ}
+Trong thuật toán FedAvg \cite{mcmahan2017fedavg}, ở vòng $t$ máy chủ gửi tham số toàn cục $w_t$ cho $N$ máy khách. Máy khách $k$ có $n_k$ mẫu dữ liệu, huấn luyện cục bộ vài epoch để được $w_{t+1}^{k}$ rồi gửi lại. Máy chủ tổng hợp:
+\begin{equation}
+    w_{t+1} = \sum_{k=1}^{N} \frac{n_k}{n}\, w_{t+1}^{k}, \qquad n = \sum_{k=1}^{N} n_k
+    \label{eq:fedavg}
+\end{equation}
+
+Phép tổng hợp chỉ là cộng có trọng số nên tốn rất ít thời gian so với việc truyền dữ liệu. Nếu mỗi bản mô hình có kích thước $S$ byte thì một vòng sinh ra $N \cdot S$ byte theo chiều xuống và $N \cdot S$ byte theo chiều lên, \emph{tất cả đều đi qua giao diện mạng của nút tổng hợp}. Đây là lý do nút tổng hợp là điểm nghẽn tự nhiên của hệ thống.
+
+Một vòng chỉ kết thúc khi bản cập nhật \emph{cuối cùng} tới nơi (đồng bộ). Vì vậy thời gian vòng bằng thời gian của máy khách chậm nhất. Trong hệ thống FL của Google, Bonawitz và cộng sự xử lý việc này bằng cách chọn nhiều thiết bị hơn số cần cho mỗi vòng rồi bỏ qua các thiết bị báo cáo muộn \cite{bonawitz2019towards}.
+
+Để giảm lưu lượng, có thể nén bản cập nhật: lượng tử hoá, chỉ gửi các phần tử gradient lớn nhất. Deep Gradient Compression báo cáo mức nén 270--600 lần mà không giảm độ chính xác \cite{lin2018dgc}. Đề tài này chọn mức nén 1/10 như một giá trị thận trọng, chỉ quan tâm tới tác động của nó lên mạng.
+
+\subsection{Kiến trúc Edge--Cloud}
+Edge computing đưa năng lực tính toán tới gần nguồn dữ liệu để giảm độ trễ và lưu lượng lên lõi mạng \cite{shi2016edge}. Với FL, nút tổng hợp có thể đặt tại biên, tức một máy chủ cùng mạng cục bộ với các Edge Node (RTT vài ms, băng thông bằng mạng LAN). Nó cũng có thể đặt trên cloud, ở trung tâm dữ liệu; khi đó mọi bản cập nhật phải đi qua liên kết WAN có RTT hàng chục ms và băng thông thường thấp hơn LAN.
+Kiến trúc phân cấp HierFAVG \cite{liu2020hierfavg} kết hợp cả hai: tổng hợp nhiều lần ở biên rồi mới gửi một bản lên cloud. Lim và cộng sự tổng kết các hướng giảm chi phí truyền thông của FL trong mạng biên \cite{lim2020survey}.
+
+\subsection{Các thành phần độ trễ}
+Theo Kurose và Ross (mục 1.4) \cite{kurose2021computer}, độ trễ của một gói tại mỗi nút gồm bốn thành phần:
+\begin{equation}
+    d_{nodal} = d_{proc} + d_{queue} + d_{trans} + d_{prop}
+    \label{eq:dnodal}
+\end{equation}
+trong đó:
+\begin{itemize}
+    \item $d_{proc}$: thời gian xử lý header, tra bảng chuyển tiếp; cỡ micro giây, bỏ qua được.
+    \item $d_{queue}$: thời gian chờ trong hàng đợi đầu ra; phụ thuộc mức tải.
+    \item $d_{trans} = L/R$: thời gian đẩy toàn bộ $L$ bit của gói lên đường truyền tốc độ $R$.
+    \item $d_{prop} = d/s$: thời gian tín hiệu lan truyền trên quãng đường $d$ với tốc độ $s$.
+\end{itemize}
+
+Với một khối 10 MB (80 Mbit) qua link 100 Mbps, riêng $d_{trans}$ của cả khối đã là 0{,}8~s, lớn hơn rất nhiều so với $d_{prop}$ của một link WAN điển hình (vài chục ms). Vì vậy với khối lớn, băng thông là yếu tố chính; với khối nhỏ, RTT và số vòng khứ hồi mới là yếu tố chính. Câu hỏi Q2 và Q3 khai thác đúng ranh giới này.
+
+Khi $N$ luồng cùng đi qua một link tốc độ $B$, hàng đợi tại đầu link bắt đầu đầy. Một hàng đợi chứa $Q$ gói kích thước $L$ thêm vào mỗi gói một độ trễ tối đa:
+\begin{equation}
+    d_{queue}^{max} = \frac{Q \cdot L}{B}
+    \label{eq:dqueue}
+\end{equation}
+Với $Q = 200$ gói, $L = 1514$ byte và $B = 100$ Mbps, $d_{queue}^{max} \approx 24$~ms. Hiện tượng hàng đợi lớn làm RTT tăng vọt khi có tải được gọi là bufferbloat.
+
+\subsection{Giao thức TCP}
+FLSync chạy trên TCP, nên thời gian truyền một khối 10 MB phụ thuộc vào bốn cơ chế của TCP trình bày dưới đây.
+
+\subsubsection{Thiết lập kết nối}
+TCP \cite{rfc9293} thiết lập kết nối bằng bắt tay ba bước SYN, SYN-ACK, ACK. Bên khởi tạo chỉ gửi được dữ liệu sau một RTT. Trong lúc bắt tay hai bên trao đổi các tuỳ chọn: MSS (mặc định 1460 byte trên Ethernet), Window Scale, SACK Permitted và Timestamps. Khi dùng Timestamps, mỗi đoạn mang thêm 12 byte tuỳ chọn nên phần tải tin thực tế còn 1448 byte.
+
+\subsubsection{Cửa sổ trượt và điều khiển luồng}
+Bên gửi được phép có tối đa $\min(cwnd, rwnd)$ byte đang bay (đã gửi, chưa được xác nhận). $rwnd$ do bên nhận quảng bá theo chỗ trống bộ đệm; $cwnd$ do bên gửi tự điều chỉnh theo tình trạng mạng. Thông lượng tối đa của một luồng xấp xỉ:
+\begin{equation}
+    \text{Thông lượng} \approx \frac{\min(cwnd, rwnd)}{RTT}
+    \label{eq:tput}
+\end{equation}
+Để lấp đầy link, cửa sổ phải đạt ít nhất tích băng thông--độ trễ:
+\begin{equation}
+    BDP = B \cdot RTT
+    \label{eq:bdp}
+\end{equation}
+Với $B = 100$ Mbps: ở biên ($RTT = 4$~ms) $BDP = 50$~KB; qua WAN ($RTT = 44$~ms) $BDP = 550$~KB.
+
+\subsubsection{Điều khiển tắc nghẽn và slow start}
+RFC 5681 \cite{rfc5681} quy định hai pha chính. Trong slow start, $cwnd$ bắt đầu từ cửa sổ khởi đầu IW và tăng thêm một MSS cho mỗi ACK, tức là gấp đôi sau mỗi RTT. Linux dùng $IW = 10$ MSS theo RFC 6928 \cite{rfc6928}, khoảng 14{,}5~KB. Khi gặp mất gói hoặc vượt ngưỡng $ssthresh$, TCP chuyển sang pha tránh tắc nghẽn; Linux mặc định dùng thuật toán CUBIC \cite{rfc9438} cho pha này.
+
+Số RTT cần để $cwnd$ từ IW đạt BDP là:
+\begin{equation}
+    k^{*} = \left\lceil \log_2 \frac{BDP}{IW} \right\rceil
+    \label{eq:kstar}
+\end{equation}
+Ở biên, $k^{*} = \lceil \log_2(50/14{,}5) \rceil = 2$ RTT, tức 8~ms, bỏ qua được. Qua WAN, $k^{*} = \lceil \log_2(550/14{,}5) \rceil = 6$ RTT, tức 264~ms. Với khối 10 MB truyền mất gần 1~s, 264~ms này chiếm khoảng một phần tư; với khối 1 MB, phần lớn thời gian truyền nằm trong slow start.
+
+Ở FL, giữa hai lần gửi luôn có khoảng nghỉ huấn luyện. RFC 5681 (mục 4.1) khuyến nghị đặt lại $cwnd$ về cửa sổ khởi động lại nếu kết nối nghỉ lâu hơn một RTO; Linux bật mặc định qua tham số \nolinkurl{net.ipv4.tcp_slow_start_after_idle = 1}. Do đó \emph{dù giữ kết nối TCP lâu dài, mỗi vòng FL vẫn phải trả lại chi phí slow start}. Bản bắt gói ở Hình~\ref{fig:ws-stevens} xác nhận điều này: đầu vòng 2, luồng lại bắt đầu từ IW = 10 gói.
+
+\subsubsection{Chia sẻ băng thông giữa các luồng}
+Khi $N$ luồng TCP có cùng RTT đi qua một link nghẽn, cơ chế điều khiển tắc nghẽn đưa mỗi luồng về xấp xỉ $B/N$. Hệ quả là các Edge Node kết thúc gần như cùng lúc, và thời gian truyền $N$ khối gần bằng thời gian truyền một khối lớn gấp $N$ lần.
+
+\subsection{Giả lập mạng bằng Mininet}
+Mininet \cite{lantz2010mininet} tạo các host ảo bằng network namespace của Linux, nối chúng bằng cặp giao diện \texttt{veth} và switch Open vSwitch. Lớp \texttt{TCLink} gắn hai bộ lọc \texttt{tc} lên mỗi đầu link: HTB giới hạn tốc độ theo tham số \texttt{bw}, còn netem thêm độ trễ theo tham số \texttt{delay} và giới hạn hàng đợi theo \nolinkurl{max_queue_size}.
+Vì độ trễ được đặt trên \emph{mỗi đầu} của link, gói đi qua một link theo một chiều chịu đúng một lần \texttt{delay}. RTT giữa hai host bằng hai lần tổng độ trễ các link trên đường đi. Ví dụ với lệnh \texttt{sudo mn -{}-link tc,bw=10,delay=20ms}, đường h1--s1--h2 có hai link nên RTT $\approx 2 \times (20 + 20) = 80$~ms. Bản gợi ý đề tài ban đầu của nhóm ghi khoảng 40~ms cho lệnh này; con số 40~ms là của ví dụ \texttt{delay=10ms} trong tài liệu hướng dẫn Mininet. Handigol và cộng sự đã dùng Mininet tái tạo kết quả của nhiều bài báo mạng đã công bố, với điều kiện máy chạy giả lập không thiếu CPU \cite{handigol2012reproducible}.
+
+\subsection{Công cụ bắt và phân tích gói}
+\texttt{tcpdump} ghi gói trên một giao diện ra file \texttt{.pcap}; Wireshark đọc file đó và cung cấp:
+\begin{itemize}
+    \item bộ lọc hiển thị (ví dụ \texttt{tcp.port == 5000});
+    \item \emph{Statistics $\rightarrow$ TCP Stream Graphs $\rightarrow$ Stevens/tcptrace}: số thứ tự theo thời gian, nhìn thấy rõ từng đợt slow start;
+    \item \emph{Statistics $\rightarrow$ I/O Graphs}: thông lượng theo thời gian của từng luồng;
+    \item \emph{Statistics $\rightarrow$ Conversations}: tổng byte và thời gian của mỗi kết nối.
+\end{itemize}
+
+\subsection{Kết luận chương}
+Một vòng FL đồng bộ dồn $2NS$ byte qua giao diện của nút tổng hợp. Với khối lớn, thời gian vòng chủ yếu do $d_{trans}$ trên link nghẽn và tăng tuyến tính theo $N$. Với khối nhỏ hoặc RTT lớn, slow start (lặp lại mỗi vòng do khoảng nghỉ huấn luyện) chiếm từ một phần tư tới phần lớn thời gian truyền. Chương tiếp theo thiết kế topo và giao thức để đo các hiệu ứng này.
+
+\cleardoublepage

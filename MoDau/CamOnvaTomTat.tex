@@ -1,0 +1,24 @@
+\thispagestyle{empty}
+
+\subsection*{\centering Lời cảm ơn}
+Nhóm xin cảm ơn cô \theadvisor{} đã góp ý cho đề tài trong quá trình đăng ký và thực hiện. Các sai sót còn lại trong báo cáo thuộc trách nhiệm của nhóm.
+
+\subsection*{\centering Tóm tắt nội dung}
+Trong Federated Learning (FL), các thiết bị biên không gửi dữ liệu thô mà gửi tham số mô hình về một nút tổng hợp sau mỗi vòng huấn luyện. Khi mô hình có kích thước hàng chục MB và số nút tăng, đường lên nút tổng hợp trở thành chỗ quyết định thời gian của cả vòng. Báo cáo này xét chi phí mạng của quá trình đồng bộ đó mà không huấn luyện mô hình thật: mỗi Edge Node chỉ truyền một khối dữ liệu kích thước cố định (10 MB, tương ứng một checkpoint) lặp lại qua nhiều vòng.
+
+Hệ thống được dựng trên Mininet gồm 2--6 Edge Node, một Edge Switch, một Edge Aggregator đặt cạnh switch và một Cloud Server nằm sau liên kết WAN có giới hạn băng thông và độ trễ. Nhóm tự định nghĩa giao thức ứng dụng FLSync chạy trên TCP, viết client/server bằng Python và bắt gói bằng tcpdump/Wireshark để phân tích bắt tay, slow start và cửa sổ trượt. Ba câu hỏi đặt ra: (1) thời gian một vòng thay đổi thế nào khi số nút tăng từ 2 lên 6; (2) nén bản cập nhật xuống 1/10 giảm thời gian truyền và RTT khi có tải bao nhiêu; (3) tổng hợp tại biên so với trên cloud chênh nhau bao nhiêu do RTT chặng WAN.
+
+Mô hình giải tích của nhóm dự đoán thời gian truyền tăng gần tuyến tính theo số nút (khoảng 0{,}84~s cho mỗi nút với 10 MB trên link 100 Mbps), nén 1/10 giảm gần đúng 10 lần ở biên nhưng chỉ khoảng 3{,}6 lần với một nút khi đi qua WAN 44 ms vì slow start chiếm phần lớn thời gian, và khi WAN chỉ có 20 Mbps thì thời gian vòng ở Cloud gấp khoảng 4{,}6 lần ở Edge, gần như toàn bộ do băng thông. Số đo trên Mininet xác nhận link tới Aggregator bão hoà ở 91--95 Mbps và tỷ lệ Cloud/Edge khoảng 4{,}9 lần khi WAN 20 Mbps; nén chiều lên rút ngắn vòng 36--38\% ở 6 nút. Sai khác chính so với mô hình đến từ việc các pha tải xuống và upload chồng lên nhau, và từ mất gói tại hàng đợi chặng WAN.
+
+Đề tài đăng ký Hướng 2 (Networking for AI).
+
+\vfill
+\begin{tabularx}{\textwidth}{>{\centering\arraybackslash}X>{\centering\arraybackslash}X}
+    \centering
+    & Đại diện nhóm thực hiện \\
+    \centering
+    &\fontsize{10pt}{0}\selectfont Ký và ghi rõ họ tên \\
+    \centering
+\end{tabularx}
+
+\cleardoublepage

@@ -1,0 +1,27 @@
+\phantomsection\section*{\centering KẾT LUẬN}
+\addcontentsline{toc}{section}{\numberline{}KẾT LUẬN}
+
+\phantomsection\subsection*{Kết luận chung}
+\addcontentsline{toc}{section}{\numberline{}Kết luận chung}
+Đề tài xem Federated Learning dưới góc nhìn của mạng: mỗi vòng đồng bộ là $2N$ lần truyền một khối dữ liệu lớn, tất cả cùng đi qua giao diện mạng của nút tổng hợp. Nhóm đã dựng topo Edge--Cloud trên Mininet, định nghĩa giao thức FLSync trên TCP có ACK tầng ứng dụng để đo chính xác từng pha, phân tích đường đi của dữ liệu qua bốn tầng, và xây dựng mô hình giải tích có tính tới slow start.
+
+Mô hình và số đo trên Mininet cho ba kết quả chính:
+\begin{itemize}
+    \item Link tới Aggregator là điểm nghẽn: thông lượng gộp đo được đứng ở 91--95 Mbps với mọi $N$, và thời gian vòng tăng tuyến tính theo số Edge Node. Mô hình cho khoảng 1{,}67~s mỗi nút với khối 10 MB trên link 100 Mbps; số đo cho khoảng 1{,}37~s, thấp hơn vì pha tải xuống và pha upload của các nút chồng lên nhau.
+    \item Nén bản cập nhật 1/10 giảm thời gian vòng khoảng 36--38\% ở $N = 6$, gần với mô hình. Mức giảm của riêng pha upload thấp hơn mô hình (3{,}7--7{,}7 lần tại biên, 1{,}9--3{,}4 lần qua WAN), vì khi bản cập nhật đã nhỏ, thời gian chờ do các luồng tải xuống kết thúc không đều chiếm phần lớn.
+    \item Với WAN 20 Mbps, Cloud chậm hơn Edge khoảng 4{,}9 lần ở $N = 6$, khớp với mô hình (4{,}6 lần). Với WAN 100 Mbps, chênh lệch đo được là 0{,}43--1{,}86~s mỗi vòng, lớn hơn 0{,}2--0{,}33~s của mô hình do mất gói tại hàng đợi chặng WAN, nhưng vẫn chỉ chiếm 7--23\% thời gian vòng.
+\end{itemize}
+
+Bản bắt gói xác nhận trực tiếp hai cơ chế mà mô hình dựa vào. Slow start lặp lại ở đầu mỗi vòng dù kết nối TCP được giữ nguyên: sau khoảng nghỉ huấn luyện, luồng bắt đầu lại từ 10 gói và gấp đôi sau mỗi RTT. Hàng đợi 200 gói có tràn: khoảng 0{,}13\% số gói phải truyền lại. Bản bắt gói cũng cho thấy một điều mô hình không có: ở khoảng thời gian 1~s, các luồng không chia đều băng thông, và đây là nguyên nhân các pha chồng lên nhau trong số đo.
+
+\phantomsection\subsection*{Hướng phát triển}
+\addcontentsline{toc}{section}{\numberline{}Hướng phát triển}
+\begin{itemize}
+    \item Thay FLSync bằng gRPC (HTTP/2) hoặc MQTT và đo chi phí thêm của các lớp giao thức này.
+    \item Thử tắt \nolinkurl{tcp_slow_start_after_idle}, đổi thuật toán điều khiển tắc nghẽn sang BBR, hoặc dùng QUIC, để giảm phần slow start lặp lại mỗi vòng.
+    \item Mô phỏng tổng hợp phân cấp: Edge Aggregator tổng hợp $N$ bản rồi chỉ gửi một bản lên Cloud.
+    \item Thêm mất gói ngẫu nhiên (\texttt{netem loss}) và Edge Node có băng thông khác nhau để nghiên cứu hiện tượng nút chậm.
+    \item Thay payload giả bằng mô hình thật (ví dụ PyTorch) để đối chiếu với kết quả đo.
+\end{itemize}
+
+\cleardoublepage

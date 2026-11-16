@@ -1,0 +1,61 @@
+\chaptercustom{6}{AI PROMPTS \& VERIFICATION LOG}
+\setcounter{section}{6}
+\setcounter{equation}{0}
+Chương này là mục ``AI Prompts \& Verification Log'' theo Hướng 3 của đề bài. Nhóm dùng Claude Code (mô hình Claude Opus 5.5, chạy trong VS Code) để soạn khung báo cáo LaTeX, viết mã mô phỏng Mininet/Python socket và mô hình giải tích. Chương ghi lại các prompt đã dùng, các lỗi của AI đã phát hiện, và trạng thái kiểm chứng của từng lỗi. Mục nào chưa được nhóm kiểm chứng thì ghi rõ là chưa.
+
+\subsection{Các prompt đã dùng}
+\begin{table}[H]
+    \centering
+    \caption{Nhật ký prompt}
+    \label{tab:prompts}
+    \begin{tabularx}{\textwidth}{c c >{\raggedright\arraybackslash\hsize=1.1\hsize}X >{\raggedright\arraybackslash\hsize=0.9\hsize}X}
+        \toprule
+        \textbf{Mã} & \textbf{Ngày} & \textbf{Prompt (nguyên văn)} & \textbf{AI trả về} \\
+        \midrule
+        P1 & 15/10/2026 & ``soạn báo cáo cho tôi theo nội dung này, soạn latex vào folder tôi gửi luôn'', kèm văn bản gợi ý đề tài (topo, ba câu hỏi đo, chia việc) & Chương 1--5, mô hình \texttt{model.py}, mã \texttt{flproto.py}, \texttt{fl\_server.py}, \texttt{fl\_client.py}, \texttt{topo.py}, \texttt{run\_experiments.py}, \texttt{summarize.py} \\
+        \midrule
+        P2 & 15/10/2026 & Lệnh \texttt{/viet-chong-dau-hieu-ai}: rà văn bản theo bộ quy tắc chống dấu hiệu văn AI & Bảng lỗi văn phong và bản sửa; danh sách chỗ trống và nguồn cần tự kiểm \\
+        \midrule
+        P3 & 15/10/2026 & ``đây là đề bài báo cáo hết môn, check kỹ xem báo cáo này đã đáp ứng đủ nội dung trong đề tài chưa'', kèm file đề bài & Ba chỗ thiếu so với đề; thêm router/firewall/gateway vào topo, bảng thông lượng, và chương này \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsection{Lỗi và ảo giác của AI}
+Bảng~\ref{tab:aierrors} liệt kê các lỗi AI đã mắc trong mã và nội dung báo cáo. Cột cuối ghi cách kiểm chứng và ai đã làm; ``AI tự rà'' nghĩa là lỗi được AI phát hiện ở bước sau, nhóm chưa kiểm độc lập.
+
+\begin{table}[H]
+    \centering
+    \caption{Lỗi của AI, cách sửa và trạng thái kiểm chứng}
+    \label{tab:aierrors}
+    \footnotesize
+    \begin{tabularx}{\textwidth}{c >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+        \toprule
+        \textbf{Mã} & \textbf{Lỗi} & \textbf{Sửa} & \textbf{Kiểm chứng} \\
+        \midrule
+        E1 & Bản đầu của \texttt{fl\_server.py} lấy $T_{down}$ tại lúc \texttt{sendall()} trả về. Hàm này trả về khi dữ liệu mới vào bộ đệm gửi, nên $T_{down}$ bị đo thiếu. & Thêm thông điệp ACK tầng ứng dụng; server lấy mốc khi nhận ACK. & AI tự rà; chạy thử 3 client, 2 vòng trên localhost. Nhóm cần so $T_{down}$ với thời điểm gói cuối trên Wireshark. \\
+        \midrule
+        E2 & Bản đầu tính $T_{up}$ bằng hiệu thời điểm nhận UPDATE muộn nhất và sớm nhất, không phải thời gian truyền. & Đổi thành $\max(t_{update}) - \min(t_{ack}) - T_{train}$. & AI tự rà. Nhóm cần đối chiếu với Wireshark. \\
+        \midrule
+        E3 & Dùng gói \texttt{listings} để chèn mã có chú thích tiếng Việt; gói này không xử lý được UTF-8 nhiều byte với pdflatex. & Đổi sang \texttt{fancyvrb}. & Biên dịch thành công, mã hiển thị đúng dấu ở Phụ lục A2. \\
+        \midrule
+        E4 & Đặt \texttt{\textbackslash label} ngoài môi trường \texttt{figure} cho 4 hình Wireshark, làm tham chiếu trỏ sai số hình. & Đưa nhãn vào trong lệnh tạo hình. & Xem lại PDF: các tham chiếu Hình 3.x đúng. \\
+        \midrule
+        E5 & Mô tả sai bài Bonawitz 2019: viết rằng hệ thống ``chọn bớt máy khách mỗi vòng''. & Sửa thành: chọn nhiều thiết bị hơn số cần và bỏ qua thiết bị báo cáo muộn. & Phát hiện ở P2. \textbf{Chưa đối chiếu với bài gốc}. \\
+        \midrule
+        E6 & Topo bản đầu không có Router, Firewall, Gateway, trong khi tiêu chí A1 của đề bài yêu cầu. & Thêm \texttt{r1} (router + iptables) và chia hai mạng 10.0.1.0/24, 10.0.2.0/24. & Phát hiện ở P3 khi đối chiếu đề bài. Chưa chạy trên Mininet. \\
+        \midrule
+        E7 & 14 tài liệu tham khảo do AI viết từ trí nhớ (tên bài, tác giả, năm, hội nghị). & -- & \textbf{Chưa kiểm chứng}. Nhóm phải mở từng bài gốc. \\
+        \midrule
+        E8 & Mã Mininet (\texttt{topo.py}, \texttt{run\_experiments.py}) được viết trên máy Windows, chưa chạy lần nào. & -- & \textbf{Chưa kiểm chứng}. Chạy các bước ở Phụ lục A1 trên máy ảo Linux. \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsection{Lỗi trong dữ liệu đầu vào do AI phát hiện}
+Văn bản gợi ý đề tài nhóm đưa vào prompt P1 ghi rằng lệnh \texttt{sudo mn -{}-link tc,bw=10,delay=20ms} cho RTT giữa h1 và h2 ``khoảng 40 ms''. AI chỉ ra con số đúng là khoảng 80~ms: Mininet đặt độ trễ trên từng link theo mỗi chiều, đường h1--s1--h2 có hai link, nên RTT $\approx 2 \times (20+20)$ ms. Tài liệu hướng dẫn Mininet có ví dụ \texttt{delay=10ms} cho RTT khoảng 40~ms, khớp với công thức này. Nhóm cần chạy lệnh trên máy ảo và ghi kết quả ping vào Bảng~\ref{tab:sanity}.
+
+\subsection{Những phần không giao cho AI}
+Số liệu trong các cột ``Đo'' của Chương~5 và các ảnh Wireshark phải lấy từ máy ảo Mininet của nhóm. Các con số hiện có trong Chương~5 là đầu ra của mô hình giải tích \texttt{model.py}; nhóm kiểm lại công thức của mô hình với RFC 5681 \cite{rfc5681} và RFC 6928 \cite{rfc6928} trước khi dùng chúng để so sánh với số đo.
+
+\cleardoublepage

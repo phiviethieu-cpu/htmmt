@@ -1,0 +1,139 @@
+\chaptercustom{1}{GIỚI THIỆU ĐỀ TÀI}
+\setcounter{section}{1}
+Chương này trình bày bối cảnh của đề tài, phát biểu bài toán, mục tiêu nghiên cứu, đầu vào và đầu ra của đề tài, ba câu hỏi đo lường mà nhóm đặt ra, phạm vi thực hiện, cách đề tài gắn với yếu tố AI của học phần và cách phân công công việc trong nhóm sáu người.
+
+\subsection{Bối cảnh}
+Federated Learning (FL) được McMahan và cộng sự đề xuất năm 2017 như một cách huấn luyện mô hình học máy trên dữ liệu phân tán mà không phải gom dữ liệu thô về một nơi \cite{mcmahan2017fedavg}. Mỗi vòng huấn luyện gồm ba bước: máy chủ phát mô hình toàn cục xuống các máy khách, mỗi máy khách huấn luyện trên dữ liệu cục bộ, rồi gửi tham số (hoặc độ chênh tham số) về để máy chủ lấy trung bình có trọng số. Dữ liệu riêng tư không rời thiết bị, nhưng đổi lại mỗi vòng phải truyền toàn bộ mô hình hai lần qua mạng cho mỗi máy khách.
+
+Với các mô hình hiện nay, một bản tham số có thể nặng từ vài MB tới hàng trăm MB. Konečný và cộng sự chỉ ra rằng ở FL, chi phí truyền thông thường lớn hơn chi phí tính toán, vì đường lên của thiết bị chậm và không ổn định \cite{konecny2016communication}. Khi đưa FL ra vùng biên mạng \cite{shi2016edge}, các nút biên gửi bản cập nhật qua một switch chung tới một nút tổng hợp; mọi luồng dồn vào cùng một đường lên, và nếu nút tổng hợp đặt trên cloud thì còn phải đi thêm chặng WAN có độ trễ lớn. Các kiến trúc FL phân cấp client--edge--cloud \cite{liu2020hierfavg} ra đời chính vì lý do này.
+
+\subsection{Phát biểu bài toán}
+Cho một mạng gồm $N$ Edge Node nối vào một Edge Switch. Từ switch có hai đường tới nút tổng hợp: một đường ngắn tới Edge Aggregator đặt ngay tại vùng biên, và một đường qua Edge Gateway (router kiêm firewall) rồi qua liên kết WAN có giới hạn băng thông và độ trễ tới Cloud Server.
+Mỗi vòng đồng bộ, nút tổng hợp gửi một khối dữ liệu kích thước $S$ (mặc định 10 MB, tương ứng một checkpoint) tới từng Edge Node; mỗi Edge Node chờ một khoảng thời gian cố định thay cho việc huấn luyện rồi gửi lại một khối có kích thước $S$ (hoặc $S/10$ nếu nén). Vòng kết thúc khi nút tổng hợp nhận đủ $N$ bản cập nhật.
+
+Nhóm không huấn luyện mô hình thật. Mạng chỉ thấy kích thước của khối dữ liệu, không thấy nội dung, nên một mảng byte 0 dài 10 MB thay được cho checkpoint. Toàn bộ phần cần phân tích nằm ở tầng mạng: băng thông, độ trễ, hành vi của TCP và điểm nghẽn tại nút tổng hợp.
+
+\subsection{Mục tiêu nghiên cứu}
+Mục tiêu chung của đề tài là định lượng chi phí truyền thông của một vòng đồng bộ FL trên mạng Edge--Cloud và chỉ ra yếu tố mạng nào quyết định thời gian của vòng đó. Mục tiêu chung được chia thành các mục tiêu cụ thể sau:
+\begin{enumerate}
+    \item Dựng được một topo Edge--Cloud trên Mininet có Edge Switch, Edge Aggregator, Edge Gateway (router kiêm firewall) và Cloud Server, với băng thông, độ trễ và kích thước hàng đợi của từng link được cấu hình qua tham số.
+    \item Thiết kế và cài đặt giao thức ứng dụng FLSync trên TCP để chạy một vòng đồng bộ đầy đủ: phát mô hình toàn cục, chờ huấn luyện, thu bản cập nhật và báo kết thúc vòng.
+    \item Xây dựng mô hình giải tích dự đoán $T_{down}$, $T_{up}$ và $T_{round}$ theo số Edge Node $N$, kích thước khối dữ liệu $S$, băng thông và RTT, rồi so sánh dự đoán với số đo.
+    \item Đo và giải thích sự thay đổi của $T_{round}$ khi $N$ tăng từ 2 lên 6 (Q1), khi nén bản cập nhật chiều lên còn 1/10 (Q2) và khi chuyển nút tổng hợp từ Edge lên Cloud (Q3).
+    \item Phân tích luồng gói bắt được bằng tcpdump/Wireshark để giải thích các con số đo: bắt tay TCP, slow start, hàng đợi tại link nghẽn và lọc gói tại firewall.
+\end{enumerate}
+
+\subsection{Đầu vào và đầu ra của đề tài}
+Đầu vào là các tham số mạng và tham số tải mà nhóm thay đổi khi chạy thí nghiệm (Bảng~\ref{tab:input}). Giá trị trong bảng lấy theo \texttt{topo.py} và \texttt{run\_experiments.py}.
+
+\begin{table}[H]
+    \centering
+    \caption{Đầu vào của đề tài}
+    \label{tab:input}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=0.8\hsize}X >{\raggedright\arraybackslash\hsize=1.2\hsize}X}
+        \toprule
+        \textbf{Tham số đầu vào} & \textbf{Giá trị} \\
+        \midrule
+        Số Edge Node $N$ & 2, 3, 4, 5, 6 \\
+        \midrule
+        Link trong vùng biên (Edge Node--Edge Switch, Edge Switch--Edge Aggregator) & 100~Mbps, độ trễ 1~ms, hàng đợi 200 gói \\
+        \midrule
+        Liên kết WAN (Edge Gateway--switch phía cloud) & 100~Mbps hoặc 20~Mbps, độ trễ 20~ms, hàng đợi 200 gói \\
+        \midrule
+        Vị trí nút tổng hợp & Edge Aggregator (10.0.1.100) hoặc Cloud Server (10.0.2.200) \\
+        \midrule
+        Kích thước mô hình toàn cục (chiều xuống) & 10~MB \\
+        \midrule
+        Kích thước bản cập nhật (chiều lên) & 10~MB (gửi toàn bộ) hoặc 1~MB (nén 1/10) \\
+        \midrule
+        Thời gian huấn luyện cục bộ & 1~s (\texttt{sleep}) \\
+        \midrule
+        Số vòng mỗi lần chạy & 10 (bỏ vòng 1 khi tính trung bình) \\
+        \midrule
+        Luật firewall tại Edge Gateway & Mặc định chặn; chỉ cho Edge Node mở kết nối TCP cổng 5000 tới Cloud Server, cho phép ICMP echo \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+Đầu ra gồm phần mềm thí nghiệm, số liệu đo và các kết luận rút ra từ số liệu (Bảng~\ref{tab:output}).
+
+\begin{table}[H]
+    \centering
+    \caption{Đầu ra của đề tài}
+    \label{tab:output}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=0.6\hsize}X >{\raggedright\arraybackslash\hsize=1.4\hsize}X}
+        \toprule
+        \textbf{Loại đầu ra} & \textbf{Nội dung} \\
+        \midrule
+        Mã nguồn & Topo Mininet (\texttt{topo.py}); giao thức FLSync (\texttt{flproto.py}); máy chủ và máy khách (\texttt{fl\_server.py}, \texttt{fl\_client.py}); kịch bản đo tự động (\texttt{run\_experiments.py}); script xử lý số liệu (\texttt{summarize.py}) \\
+        \midrule
+        Số liệu thô & Mỗi kịch bản và mỗi $N$: log từng vòng ($T_{down}$, $T_{up}$, $T_{round}$), log ping đo RTT khi có tải, file pcap bắt tại interface của nút tổng hợp \\
+        \midrule
+        Số liệu tổng hợp & File \texttt{measured\_*.csv}: trung bình $T_{down}$, $T_{up}$, $T_{round}$, độ lệch chuẩn của $T_{round}$ và thông lượng gộp pha upload theo $N$; file \texttt{model\_*.csv}: giá trị dự đoán của mô hình giải tích \\
+        \midrule
+        Biểu đồ và phân tích & Biểu đồ so sánh số đo với mô hình; phân tích luồng gói trên Wireshark (bắt tay, slow start, hàng đợi) \\
+        \midrule
+        Kết luận & Câu trả lời định lượng cho Q1, Q2, Q3 và khuyến nghị về vị trí đặt nút tổng hợp, việc nén bản cập nhật \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsection{Câu hỏi nghiên cứu và chỉ số đo}
+Đề tài trả lời ba câu hỏi, mỗi câu gắn với các chỉ số đo cụ thể (Bảng~\ref{tab:rq}).
+
+\begin{table}[H]
+    \centering
+    \caption{Câu hỏi nghiên cứu và chỉ số đo}
+    \label{tab:rq}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=1.1\hsize}X >{\raggedright\arraybackslash\hsize=0.9\hsize}X}
+        \toprule
+        \textbf{Câu hỏi} & \textbf{Chỉ số đo} \\
+        \midrule
+        Q1. Thời gian hoàn thành một vòng đồng bộ thay đổi thế nào khi số Edge Node tăng từ 2 lên 6? & $T_{round}$, $T_{down}$, $T_{up}$; thông lượng trên link tới Aggregator \\
+        \midrule
+        Q2. Gửi gradient đã nén (payload giảm còn 1/10) so với gửi toàn bộ mô hình thì RTT và $d_{trans}$ giảm bao nhiêu? & $T_{up}$, RTT đo bằng ping trong lúc truyền, số vòng slow start trên Wireshark \\
+        \midrule
+        Q3. Tổng hợp tại Edge so với tại Cloud chênh nhau bao nhiêu do RTT chặng WAN? & $T_{round}$ ở hai vị trí; phần chênh do bắt tay và slow start \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsection{Phạm vi và giới hạn}
+\begin{itemize}
+    \item Mạng được giả lập bằng Mininet \cite{lantz2010mininet} trên một máy ảo Linux; băng thông và độ trễ do \texttt{tc} (HTB và netem) áp đặt. Kết quả là hành vi của TCP Linux trong môi trường có kiểm soát; muốn biết số liệu trên mạng thật thì phải đo lại trên mạng thật.
+    \item Không có mất gói ngẫu nhiên; mất gói chỉ xảy ra khi hàng đợi tại link nghẽn bị đầy.
+    \item Thời gian huấn luyện cục bộ được thay bằng \texttt{sleep} cố định 1~s; thời gian tổng hợp (FedAvg) xem như bằng 0.
+    \item Giao thức ứng dụng do nhóm tự định nghĩa trên socket TCP. gRPC và MQTT được thảo luận ở phần hướng phát triển.
+\end{itemize}
+
+\subsection{Yếu tố AI trong đề tài}
+Đề tài đăng ký Hướng 2 (Networking for AI) làm hướng chính: đối tượng nghiên cứu là hạ tầng mạng phục vụ một hệ thống AI phân tán, cụ thể là lưu lượng đồng bộ tham số của FL. Câu hỏi Q2 gắn trực tiếp với các kỹ thuật nén gradient trong học sâu phân tán như Deep Gradient Compression \cite{lin2018dgc}.
+
+\subsection{Phân công công việc}
+\begin{table}[H]
+    \centering
+    \caption{Phân công công việc trong nhóm}
+    \label{tab:assign}
+    \begin{tabularx}{\textwidth}{c >{\raggedright\arraybackslash\hsize=0.6\hsize}X >{\raggedright\arraybackslash\hsize=1.4\hsize}X}
+        \toprule
+        \textbf{TT} & \textbf{Thành viên} & \textbf{Nhiệm vụ} \\
+        \midrule
+        1 & [Thành viên 1] & Dựng topo Mininet (\texttt{topo.py}) và firewall của Edge Gateway, kiểm tra băng thông/độ trễ bằng ping và iperf. Viết Chương 2 và mục topo ở Chương 3 \\
+        \midrule
+        2 & [Thành viên 2] & Viết giao thức FLSync (\texttt{flproto.py}) và \texttt{fl\_server.py}. Viết mục giao thức FLSync ở Chương 3 \\
+        \midrule
+        3 & [Thành viên 3] & Viết \texttt{fl\_client.py}, \texttt{run\_experiments.py}; chạy và phân tích kịch bản K1 (Q1). Viết mục kịch bản và quy trình đo ở Chương 4, kết quả Q1 ở Chương 5 \\
+        \midrule
+        4 & [Thành viên 4] & Bắt gói bằng tcpdump/Wireshark; chạy và phân tích kịch bản K2 (Q2). Viết mục phân tích luồng gói ở Chương 3, kết quả Q2 ở Chương 5 \\
+        \midrule
+        5 & [Thành viên 5] & Xây dựng mô hình giải tích (\texttt{model.py}); chạy và phân tích kịch bản K3 (Q3). Viết mục mô hình ở Chương 4, kết quả Q3 ở Chương 5 \\
+        \midrule
+        6 & [Thành viên 6] & Xử lý số liệu (\texttt{summarize.py}), vẽ toàn bộ biểu đồ. Viết Chương 1, Kết luận; ghép báo cáo, làm slide \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsection{Cấu trúc báo cáo}
+Chương 2 tóm tắt cơ sở lý thuyết về FL, các thành phần độ trễ và cơ chế của TCP. Chương 3 trình bày topo mạng, giao thức FLSync và phân tích luồng gói của một vòng đồng bộ qua các tầng. Chương 4 xây dựng mô hình giải tích và mô tả các kịch bản đo. Chương 5 trình bày kết quả và trả lời ba câu hỏi nghiên cứu. Phần kết luận tổng kết và nêu hướng phát triển.
+
+\cleardoublepage
