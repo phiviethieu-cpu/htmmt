@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo Mininet - Edge-Cloud FL</title>
+<style>
+  :root { --navy:#003366; --red:#CE1628; --down:#1F6FB2; --up:#E5750F; --ok:#1B8A4B; --ink:#231F20; --mute:#6B7280; --line:#C9D1DA; --bg:#F5F7FA; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; margin:0; }
+  body { font-family:"Segoe UI",Arial,sans-serif; color:var(--ink); background:var(--bg); display:grid; grid-template-rows:auto 1fr; overflow:hidden; }
+  header { background:var(--navy); color:#fff; padding:1.3vh 2vw; border-bottom:.5vh solid var(--red); display:flex; justify-content:space-between; align-items:baseline; gap:2vw; }
+  header b { font-size:3.2vh; font-weight:600; }
+  header span { font-size:2vh; opacity:.85; white-space:nowrap; }
+  main { display:grid; grid-template-columns:minmax(0,1.75fr) minmax(0,1fr); gap:1.2vw; padding:1.6vh 1.2vw; min-height:0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1.4vh 1vw; min-height:0; }
+  #topo { display:flex; flex-direction:column; }
+  svg { width:100%; flex:1; min-height:0; }
+  aside { display:grid; grid-template-rows:auto auto 1fr; gap:1.4vh; min-height:0; }
+  h2 { margin:0 0 .8vh; font-size:2vh; color:var(--navy); font-weight:600; }
+  .wan { display:grid; grid-template-columns:repeat(3,1fr); text-align:center; gap:.5vw; }
+  .wan div { border-radius:6px; padding:.8vh 0; background:var(--bg); }
+  .wan b { display:block; font-size:3.6vh; line-height:1.15; font-variant-numeric:tabular-nums; }
+  .wan small { font-size:1.6vh; color:var(--mute); }
+  .wan .hot { background:#FBE3E5; } .wan .hot b { color:var(--red); }
+  .rate { display:flex; justify-content:space-between; font-size:2vh; font-variant-numeric:tabular-nums; }
+  .rate b { font-size:2.6vh; }
+  #spark { width:100%; height:9vh; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:2.1vh; font-variant-numeric:tabular-nums; }
+  th { text-align:right; font-weight:600; color:var(--mute); font-size:1.7vh; padding:.3vh .3vw; }
+  td { text-align:right; padding:.55vh .3vw; border-top:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  .bar { display:inline-block; height:1.5vh; background:var(--navy); border-radius:2px; vertical-align:middle; }
+  .ok { color:var(--ok); font-weight:600; } .bad { color:var(--red); font-weight:600; }
+  .log { font-size:2.1vh; line-height:1.6; }
+  .legend { display:flex; gap:2vw; font-size:1.8vh; color:var(--mute); padding-top:.4vh; }
+  .legend i { display:inline-block; width:2.2vw; height:.7vh; border-radius:2px; vertical-align:middle; margin-right:.4vw; }
+  text { font-family:inherit; }
+  .flow { fill:none; stroke-linecap:round; stroke-dasharray:3 15; opacity:0; }
+  .flow.d { stroke:var(--down); } .flow.u { stroke:var(--up); }
+  .wire { stroke:#AEB8C4; stroke-width:2; }
+  #off { position:fixed; inset:auto 0 0 0; background:var(--red); color:#fff; text-align:center; padding:.8vh; font-size:2vh; display:none; }
+</style>
+</head>
+<body>
+<header><b id="step">Đang chờ Mininet…</b><span>Federated Learning trên nền tảng Mininet · Nhóm 1</span></header>
+<main>
+  <section class="card" id="topo">
+    <svg viewBox="0 0 960 740" id="svg" role="img" aria-label="Sơ đồ topo Edge-Cloud"></svg>
+    <div class="legend"><span><i style="background:var(--down)"></i>Tải mô hình xuống</span><span><i style="background:var(--up)"></i>Gửi cập nhật lên</span><span>Tốc độ chảy theo lưu lượng đo trên từng link</span></div>
+  </section>
+  <aside>
+    <div class="card"><h2>Chặng WAN (r1 – s2)</h2>
+      <div class="wan"><div id="w1"><b id="bw">–</b><small>Mbps</small></div><div id="w2"><b id="dl">–</b><small>ms một chiều</small></div><div id="w3"><b id="ls">–</b><small>mất gói</small></div></div>
+    </div>
+    <div class="card"><h2>Lưu lượng đo trên chặng WAN (Mbps)</h2>
+      <div class="rate"><span style="color:var(--down)">Xuống <b id="rd">0,0</b></span><span style="color:var(--up)">Lên <b id="ru">0,0</b></span></div>
+      <canvas id="spark"></canvas></div>
+    <div class="card"><h2 id="ptitle">Kết quả</h2><div id="panel" class="log"></div></div>
+  </aside>
+</main>
+<div id="off">Mất kết nối với Mininet, đang hiện trạng thái cuối cùng</div>
+<script>
+const NS='http://www.w3.org/2000/svg', svg=document.getElementById('svg'), $=id=>document.getElementById(id);
+const vn=(x,d=1)=>x.toFixed(d).replace('.',',');
+function el(t,a,p=svg){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p.appendChild(e);return e;}
+function label(x,y,s,o={}){const e=el('text',Object.assign({x,y,'text-anchor':'middle','font-size':17,fill:'#231F20'},o));e.textContent=s;return e;}
+// vùng mạng
+for(const [x,y,w,h,s] of [[10,36,560,694,'Mạng biên 10.0.1.0/24'],[694,400,258,190,'Mạng cloud 10.0.2.0/24']]){
+  el('rect',{x,y,width:w,height:h,rx:12,fill:'#FAFBFD',stroke:'#C9D1DA','stroke-dasharray':'5 5'}); label(x+w/2,y-10,s,{fill:'#6B7280','font-size':16});}
+const P={s1:[300,380],agg:[462,170],r1:[500,500],s2:[746,500],cloud:[880,500]};
+for(let i=1;i<=6;i++)P['h'+i]=[90,100+(i-1)*114];
+// link: tên, hai đầu, chiều "xuống" là a->b (từ phía server về h)
+const L=[]; for(let i=1;i<=6;i++)L.push(['h'+i,'s1','h'+i]);
+L.push(['agg','agg','s1'],['gw','r1','s1'],['wan','s2','r1'],['cloud','cloud','s2']);
+const flows={};
+for(const [n,a,b] of L){const [x1,y1]=P[a],[x2,y2]=P[b],len=Math.hypot(x2-x1,y2-y1),ox=-(y2-y1)/len*5,oy=(x2-x1)/len*5;
+  const w=el('line',{x1,y1,x2,y2,class:'wire'}); if(n==='wan')w.style.cssText='stroke:#CE1628;stroke-width:4;stroke-dasharray:9 6';
+  flows[n]={d:el('path',{class:'flow d',d:`M${x1+ox} ${y1+oy}L${x2+ox} ${y2+oy}`}),u:el('path',{class:'flow u',d:`M${x2-ox} ${y2-oy}L${x1-ox} ${y1-oy}`}),pd:0,pu:0,rd:0,ru:0,td:0,tu:0};}
+const wanTxt=label(632,452,'WAN',{fill:'#CE1628','font-weight':600}),wanTx2=label(632,474,'',{fill:'#CE1628','font-size':14});
+function box(id,w,h,fill,stroke,t,sub){const [x,y]=P[id];el('rect',{x:x-w/2,y:y-h/2,width:w,height:h,rx:9,fill,stroke,'stroke-width':2});
+  label(x,y+(sub?-2:6),t,{'font-weight':600});if(sub)label(x,y+17,sub,{'font-size':13,fill:'#4B5563'});}
+for(let i=1;i<=6;i++)box('h'+i,84,46,'#E6EFF8','#1F6FB2','h'+i,'10.0.1.'+i);
+box('s1',66,50,'#EEF0F3','#6B7280','s1'); box('s2',56,50,'#EEF0F3','#6B7280','s2');
+box('agg',176,62,'#FDEEDD','#E5750F','Edge Aggregator','10.0.1.100'); box('cloud',118,60,'#FDEEDD','#E5750F','Cloud','10.0.2.200');
+{const [x,y]=P.r1;el('circle',{cx:x,cy:y,r:33,fill:'#FBE3E5',stroke:'#CE1628','stroke-width':2});label(x,y+6,'r1',{'font-weight':600});label(x,y+56,'Gateway + firewall',{'font-size':14,fill:'#4B5563'});}
+const probe=el('g',{opacity:0}), pc=el('circle',{r:11,fill:'#1B8A4B'},probe), pt=el('text',{y:-22,'text-anchor':'middle','font-size':18,'font-weight':600},probe);
+function place(x,y){probe.setAttribute('transform',`translate(${x},${y})`);}
+let lastProbe=null;
+function runProbe(p){const path=p.open?['h1','s1','r1','s2','cloud']:['h1','s1','r1'];const c=p.open?'#1B8A4B':'#CE1628';
+  pc.setAttribute('fill',c);pt.setAttribute('fill',c);pt.textContent='TCP/'+p.port;probe.setAttribute('opacity',1);const t0=performance.now(),D=1500;
+  (function f(t){let k=Math.min(1,(t-t0)/D)*(path.length-1),i=Math.min(path.length-2,Math.floor(k)),r=k-i,[x1,y1]=P[path[i]],[x2,y2]=P[path[i+1]];
+    place(x1+(x2-x1)*r,y1+(y2-y1)*r); if(t-t0<D)requestAnimationFrame(f); else{pt.textContent=p.open?`TCP/${p.port} vào được`:`TCP/${p.port} bị chặn`;setTimeout(()=>probe.setAttribute('opacity',0),2200);}})(t0);}
+let S=null,hist=[],seen='';
+const REDUCE=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function panel(s){
+  if(s.results&&s.results.length===s.ncase){$('ptitle').textContent='Cùng mô hình, chỉ đổi điều kiện mạng';const m=Math.max(...s.results.map(r=>r.t)),b=s.results[0].t;
+    return '<table><tr><th>Điều kiện</th><th>giây/vòng</th><th>so chuẩn</th><th>chính xác</th></tr>'+s.results.map(r=>`<tr><td>${r.short}<br><span class="bar" style="width:${(9*r.t/m).toFixed(1)}vw"></span></td><td>${vn(r.t,2)}</td><td>${vn(r.t/b)}×</td><td>${vn(r.acc*100)}%</td></tr>`).join('')+'</table>';}
+  if(s.case){$('ptitle').textContent=s.case;
+    return '<table><tr><th>Vòng</th><th>Thời gian</th><th>Độ chính xác</th></tr>'+s.rounds.map((r,i)=>`<tr><td>${i+1}</td><td><b>${vn(r.t,2)} s</b></td><td>${vn(r.acc*100)}%</td></tr>`).join('')+(s.rounds.length<s.nround?`<tr><td>${s.rounds.length+1}</td><td colspan="2" style="color:var(--mute)">đang chạy…</td></tr>`:'')+'</table>';}
+  let h='';$('ptitle').textContent='Kiểm tra mạng';
+  for(const p of s.pings||[])h+=`<div>h1 → ${p.to}: RTT <b>${vn(p.avg)} ms</b> <span style="color:var(--mute)">(kỳ vọng ${p.want})</span></div>`;
+  for(const p of s.probes||[])h+=`<div>h1 → cloud TCP/${p.port}: <span class="${p.open?'ok':'bad'}">${p.open?'vào được':'bị chặn'}</span></div>`;
+  if(s.drop!=null)h+=`<div>Firewall DROP: <b>${s.drop}</b> gói</div>`;return h||'<div style="color:var(--mute)">Đang dựng topo…</div>';}
+function apply(s){S=s;$('step').textContent=s.step||'Đang chờ Mininet…';
+  const w=s.wan;if(w){$('bw').textContent=w.bw;$('dl').textContent=w.delay;$('ls').textContent=w.loss+'%';
+    $('w1').className=w.bw<100?'hot':'';$('w2').className=w.delay>20?'hot':'';$('w3').className=w.loss>0?'hot':'';wanTxt.textContent=w.bw+' Mbps';wanTx2.textContent=w.delay+' ms · mất '+w.loss+'%';}
+  for(const n in flows){const r=(s.rate||{})[n]||[0,0];flows[n].td=r[0];flows[n].tu=r[1];}
+  const r=(s.rate||{}).wan||[0,0];$('rd').textContent=vn(r[0]);$('ru').textContent=vn(r[1]);hist.push(r);if(hist.length>120)hist.shift();spark(s.wan?s.wan.bw:100);
+  const h=panel(s);if(h!==seen){$('panel').innerHTML=h;seen=h;}
+  const n=(s.probes||[]).length-1;if(lastProbe===null)lastProbe=n;else if(n>lastProbe){lastProbe=n;runProbe(s.probes[n]);}else if(n<lastProbe)lastProbe=n;}
+function spark(max){const c=$('spark'),g=c.getContext('2d'),W=c.width=c.clientWidth*devicePixelRatio,H=c.height=c.clientHeight*devicePixelRatio;
+  g.clearRect(0,0,W,H);g.strokeStyle='#C9D1DA';g.lineWidth=1;g.beginPath();g.moveTo(0,H-1);g.lineTo(W,H-1);g.moveTo(0,4);g.lineTo(W,4);g.stroke();
+  g.fillStyle='#6B7280';g.font=`${12*devicePixelRatio}px Segoe UI`;g.fillText(max+' Mbps',4,18*devicePixelRatio);
+  [['#1F6FB2',0],['#E5750F',1]].forEach(([col,k])=>{g.strokeStyle=col;g.lineWidth=2*devicePixelRatio;g.beginPath();hist.forEach((v,i)=>{const x=i/119*W,y=H-2-Math.min(1,v[k]/max)*(H-8);i?g.lineTo(x,y):g.moveTo(x,y);});g.stroke();});}
+let prev=performance.now();
+function tick(t){const dt=Math.min(.1,(t-prev)/1000);prev=t;
+  for(const n in flows){const f=flows[n];for(const k of ['d','u']){const R='r'+k,Q='p'+k;f[R]+=(f['t'+k]-f[R])*Math.min(1,dt*6);const v=f[R];
+    const on=v>.15;f[k].style.opacity=on?1:0;if(on){f[k].style.strokeWidth=(3+Math.min(6,Math.sqrt(v)*.7)).toFixed(1);if(!REDUCE){f[Q]-=dt*(25+18*Math.sqrt(v));f[k].style.strokeDashoffset=f[Q].toFixed(1);}}}}
+  requestAnimationFrame(tick);}
+requestAnimationFrame(tick);
+let fail=0;
+async function poll(){try{const r=await fetch('/state',{cache:'no-store'});apply(await r.json());fail=0;}catch(e){fail++;for(const n in flows){flows[n].td=flows[n].tu=0;}}
+  $('off').style.display=(fail>4&&S&&!(S.results&&S.results.length===S.ncase))?'block':'none';setTimeout(poll,250);}
+poll();
+</script>
+</body>
+</html>

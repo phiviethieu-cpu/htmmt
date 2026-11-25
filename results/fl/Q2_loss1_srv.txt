@@ -1,0 +1,21 @@
+[server] 4 clients joined
+[server] round 1: 4.695 s 0.7275
+[server] round 2: 6.448 s 0.8050
+[server] round 3: 9.046 s 0.8370
+[server] round 4: 8.518 s 0.8535
+[server] round 5: 9.381 s 0.8685
+[server] round 6: 8.443 s 0.8705
+[server] round 7: 8.166 s 0.8740
+[server] round 8: 8.925 s 0.8830
+[server] round 9: 9.518 s 0.8880
+[server] round 10: 9.322 s 0.8920
+[server] round 11: 9.643 s 0.8910
+[server] round 12: 9.239 s 0.8960
+[server] round 13: 9.368 s 0.8960
+[server] round 14: 9.484 s 0.9000
+[server] round 15: 8.208 s 0.9015
+[server] round 16: 9.802 s 0.9075
+[server] round 17: 9.646 s 0.9055
+[server] round 18: 8.653 s 0.9065
+[server] round 19: 8.132 s 0.9100
+[server] round 20: 8.894 s 0.9080
