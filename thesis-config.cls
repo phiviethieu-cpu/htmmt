@@ -26,8 +26,9 @@
 \RequirePackage{datetime}               % Để bóc tách ngày tháng
 %----- CONFIG PACKAGE -----
 \KOMAoptions{fontsize=13pt}             % Đúng cách để đặt kích thước chữ với scrextend
-\geometry{paperheight=29.7cm, paperwidth=21cm, right=2.5cm, left=3.5cm, top=2cm, bottom=2cm}
-\geometry{paperheight=29.7cm, paperwidth=21cm, right=2.5cm, left=3.5cm, top=2cm, bottom=2cm}
+% In 2 mặt: lề trong (phía gáy) 3,5 cm, lề ngoài 2,5 cm.
+% Trang lẻ: gáy bên trái -> chữ lệch phải; trang chẵn: gáy bên phải -> chữ lệch trái.
+\geometry{paperheight=29.7cm, paperwidth=21cm, twoside, inner=3.5cm, outer=2.5cm, top=2cm, bottom=2cm}
 % \geometry{showframe}                  % Show margin
 \AtBeginDocument{\usetikzlibrary{calc}} % Nạp thư viện calc của TikZ
 \lstset{

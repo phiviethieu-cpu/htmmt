@@ -5,6 +5,7 @@
 %----- GÓI BỔ SUNG CHO BÁO CÁO -----
 \usepackage{booktabs}
 \usepackage{multirow}
+\usepackage{longtable}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.17}
 \usetikzlibrary{arrows.meta, positioning, shapes.geometric, fit, backgrounds, decorations.pathreplacing}
@@ -37,8 +38,8 @@
 }
 
 %----- PERSONAL INFORMATION -----
-\title{Đánh giá chi phí mạng của Federated Learning tại biên: băng thông, độ trễ đồng bộ và điểm nghẽn tại Aggregation Node trong kiến trúc Edge--Cloud}
-\author{Nhóm [số nhóm]}
+\title{Federated Learning trên nền tảng Mininet -- Tự động hóa đo lường \& Đánh giá hiệu năng mạng}
+\author{Nhóm 1}
 \specialization{Hướng 2: Networking for AI}
 \authoremail{[email nhóm]}
 \universitycity{HÀ NỘI}
@@ -53,12 +54,12 @@
 \degreeyear{\the\year}
 \major{}
 \members{
-    & [Họ tên thành viên 1] & [MSSV] \\[1ex]
-    & [Họ tên thành viên 2] & [MSSV] \\[1ex]
-    & [Họ tên thành viên 3] & [MSSV] \\[1ex]
-    & [Họ tên thành viên 4] & [MSSV] \\[1ex]
-    & [Họ tên thành viên 5] & [MSSV] \\[1ex]
-    & [Họ tên thành viên 6] & [MSSV] \\[1ex]
+    & Hứa Ngọc Khánh & 202419070 \\[1ex]
+    & Nguyễn Đức Chung & 202419037 \\[1ex]
+    & Nguyễn Hữu Kiến & 202419072 \\[1ex]
+    & Phí Việt Hiếu & 202419055 \\[1ex]
+    & Đoàn Hữu Việt & 202419121 \\[1ex]
+    & Nguyễn Việt Hùng & 202419064 \\[1ex]
 }
 
 %----- MAIN DOCUMENT -----
@@ -72,13 +73,10 @@
     \input{MoDau/DanhMucHinhVe}
     \input{MoDau/DanhMucBangBieu}
     \pagenumbering{arabic}% Đánh số trang thứ tự bình thường
-    % NỘI DUNG
+    % NỘI DUNG (theo đề cương: 2 chương)
+    \input{MoDau/LoiMoDau}
     \input{./NoiDung/Chuong1}
     \input{./NoiDung/Chuong2}
-    \input{./NoiDung/Chuong3}
-    \input{./NoiDung/Chuong4}
-    \input{./NoiDung/Chuong5}
-    % \input{./NoiDung/Chuong6} % AI Prompts & Verification Log, tạm bỏ
     % KẾT THÚC
     \input{KetThuc/KetLuan}
     \input{KetThuc/TaiLieuThamKhao}

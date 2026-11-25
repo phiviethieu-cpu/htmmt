@@ -1,0 +1,44 @@
+\phantomsection\section*{\centering MỞ ĐẦU}
+\addcontentsline{toc}{section}{\numberline{}MỞ ĐẦU}
+
+\phantomsection\subsection*{Lý do chọn đề tài}
+Federated Learning (FL) cho phép huấn luyện mô hình học máy trên dữ liệu phân tán mà dữ liệu thô không rời thiết bị \cite{mcmahan2017fedavg}. Đổi lại, sau mỗi vòng huấn luyện, tham số mô hình phải đi qua mạng hai lần cho mỗi thiết bị. Khi mô hình nặng hàng chục MB và các nút nằm ở vùng biên mạng, thời gian truyền tham số thường lớn hơn thời gian tính toán \cite{konecny2016communication}. Đề tài xem xét bài toán này từ phía mạng: đo xem băng thông, RTT, cơ chế của TCP và vị trí đặt nút tổng hợp quyết định thời gian một vòng đồng bộ FL như thế nào.
+
+\phantomsection\subsection*{Mục tiêu và phương pháp}
+Mục tiêu của đề tài là định lượng chi phí truyền thông của một vòng đồng bộ FL trên mạng Edge--Cloud và chỉ ra yếu tố mạng nào quyết định thời gian của vòng đó. Các mục tiêu cụ thể, ba câu hỏi nghiên cứu Q1--Q3 và phạm vi được trình bày ở Mục~\ref{sec:2-2}. Nhóm dùng hai phương pháp bổ sung cho nhau: giả lập mạng bằng Mininet và đo tự động; bắt và phân tích gói tin bằng tcpdump/Wireshark để giải thích số đo.
+
+\phantomsection\subsection*{Phân công công việc}
+Nhóm gồm sáu thành viên, mỗi người đảm nhận một vai trò theo bảng phân công của học phần (Bảng~\ref{tab:assign}). Toàn bộ thành viên cùng hợp nhất báo cáo, thống nhất thuật ngữ và định dạng.
+
+\begingroup
+\setcounter{table}{0}% longtable ở danh mục ký hiệu đã tăng bộ đếm bảng
+\renewcommand{\thetable}{\textit{\fontsize{12pt}{0}\selectfont \arabic{table}}}
+\begin{table}[H]
+    \centering
+    \caption{Phân công công việc trong nhóm}
+    \label{tab:assign}
+    \small
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.2cm} >{\raggedright\arraybackslash\hsize=0.75\hsize}X >{\raggedright\arraybackslash\hsize=1.2\hsize}X >{\raggedright\arraybackslash\hsize=1.05\hsize}X}
+        \toprule
+        \textbf{Vai trò, thành viên} & \textbf{Phần báo cáo} & \textbf{Kỹ thuật, lập trình} & \textbf{Slide, thuyết trình} \\
+        \midrule
+        Role 1 -- Hứa Ngọc Khánh (Mạng và giao thức TCP) & Mục 1.3, 1.4 & Phối hợp Role 3 kiểm tra thông số mạng & Slide phần cơ sở mạng và TCP; thuyết trình mở đầu, đặt vấn đề và cơ sở mạng (3 phút) \\
+        \midrule
+        Role 2 -- Nguyễn Hữu Kiến (Hệ thống FL và Edge--Cloud) & Mục 1.1, 1.2, 2.1 & -- & Slide phần giới thiệu dự án, kiến trúc Edge--Cloud FL \\
+        \midrule
+        Role 3 -- Phí Việt Hiếu (Mô phỏng topo và Gateway) & Mục 1.5.1, 2.2, 2.3 & \texttt{topo.py}: cấu hình Mininet, băng thông, độ trễ, iptables, định tuyến & Sơ đồ topo cho slide; kịch bản và video demo Mininet (5 phút) \\
+        \midrule
+        Role 4 -- Nguyễn Việt Hùng (Giao thức, Server và Client) & Mục 1.5.2, 2.4, 2.5 & \texttt{flproto.py}, \texttt{fl\_server.py}, \texttt{fl\_client.py} & Sơ đồ tuần tự thông điệp cho slide; demo cùng Role 3 \\
+        \midrule
+        Role 5 -- Nguyễn Đức Chung (Giả thiết và kịch bản đo) & Mục 2.6 (gồm kịch bản đo) & \texttt{model.py} (mạng nơ-ron), \texttt{run\_experiments.py} & Slide phần kịch bản thử nghiệm và phương pháp đo \\
+        \midrule
+        Role 6 -- Đoàn Hữu Việt (Xử lý số liệu, phân tích gói) & Mục 1.5.3, 2.7 (bắt gói, phân tích Wireshark, kết quả Q1--Q3) & \texttt{summarize.py}, \texttt{pcap\_overhead.py}, bắt và trích xuất file pcap & Slide phần kết quả; trình bày kết quả Q1--Q3, Wireshark và kết luận (6 phút) \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+\endgroup
+
+\phantomsection\subsection*{Cấu trúc báo cáo}
+Ngoài phần mở đầu và kết luận, báo cáo gồm hai chương. Chương~1 trình bày cơ sở lý thuyết: kiến trúc Edge--Cloud và điện toán biên, Federated Learning, mô hình phân tầng và giao thức TCP, các chỉ số đo hiệu năng mạng và các công cụ mô phỏng, phân tích gói. Chương~2 trình bày phần thiết kế, triển khai và thực nghiệm: khảo sát hiện trạng, đặc tả yêu cầu, thiết kế topo và giao thức FLSync, xây dựng các module phần mềm, thiết lập giả thiết và kịch bản đo, rồi đánh giá kết quả cho ba câu hỏi Q1--Q3.
+
+\cleardoublepage

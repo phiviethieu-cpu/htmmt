@@ -2,22 +2,29 @@
 \addcontentsline{toc}{section}{\numberline{}PHỤ LỤC}
 
 \subsection*{A1. Cài đặt và chạy thí nghiệm}
-Môi trường: máy ảo Ubuntu 22.04 trở lên, ít nhất 2 vCPU, 4 GB RAM.
+Môi trường: Ubuntu 22.04 (máy ảo hoặc WSL2) trở lên, ít nhất 2 vCPU, 4 GB RAM; Python 3.10 và \texttt{numpy}.
 \codesnap{setup}
 
 \subsection*{A2. Mã nguồn}
-Ảnh mã nguồn dưới đây được sinh tự động từ thư mục \texttt{code/} bằng \texttt{tools/make\_snaps.py}; tệp dài hơn 60 dòng được chia thành hai ảnh, số dòng chạy tiếp.
-\codesnap[flproto.py -- giao thức FLSync]{flproto}
+Ảnh mã nguồn dưới đây được sinh tự động từ thư mục \texttt{code/} bằng \texttt{tools/make\_snaps.py}; tệp dài hơn 60 dòng được chia thành nhiều ảnh, số dòng chạy tiếp.
+\codesnap[flproto.py -- giao thức FLSync]{flproto_1}
+\codesnap{flproto_2}
 \codesnap[fl\_server.py -- Aggregation Server]{fl_server_1}
 \codesnap{fl_server_2}
-\codesnap[fl\_client.py -- Edge Node]{fl_client}
+\codesnap[fl\_client.py -- Edge Node]{fl_client_1}
+\codesnap{fl_client_2}
+\codesnap[model.py -- mạng nơ-ron MLP, SGD, FedAvg]{model_1}
+\codesnap{model_2}
+\codesnap{model_3}
 \codesnap[topo.py -- topo Mininet]{topo_1}
 \codesnap{topo_2}
-\codesnap[run\_experiments.py -- chạy kịch bản đo]{run_experiments_1}
+\codesnap[run\_experiments.py -- chạy batch kịch bản đo]{run_experiments_1}
 \codesnap{run_experiments_2}
-\codesnap[summarize.py -- tổng hợp số liệu đo]{summarize}
-\codesnap[model.py -- mô hình giải tích]{model_1}
-\codesnap{model_2}
+\codesnap{run_experiments_3}
+\codesnap[summarize.py -- tổng hợp số liệu đo]{summarize_1}
+\codesnap{summarize_2}
+\codesnap[pcap\_overhead.py -- overhead và truyền lại từ pcap]{pcap_overhead_1}
+\codesnap{pcap_overhead_2}
 
 \subsection*{A3. Số liệu đo đã tổng hợp}
 Số liệu từng vòng (\texttt{results/<kịch bản>\_n<N>.csv}) được \texttt{summarize.py} gom thành các file dưới đây, mỗi dòng là trung bình 9 vòng (bỏ vòng 1) với một giá trị $N$. Các cột: \texttt{t\_down}, \texttt{t\_up}, \texttt{t\_round} (giây), \texttt{t\_round\_sd} (độ lệch chuẩn của $T_{round}$, giây), \texttt{thr\_mbps} (thông lượng gộp pha upload, Mbps). Các ảnh dưới đây chụp cửa sổ terminal WSL (Ubuntu 22.04) khi in từng file bằng \texttt{column -s, -t}.

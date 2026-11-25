@@ -1,139 +1,233 @@
-\chaptercustom{1}{GIỚI THIỆU ĐỀ TÀI}
+\chaptercustom{1}{CƠ SỞ LÝ THUYẾT}
 \setcounter{section}{1}
-Chương này trình bày bối cảnh của đề tài, phát biểu bài toán, mục tiêu nghiên cứu, đầu vào và đầu ra của đề tài, ba câu hỏi đo lường mà nhóm đặt ra, phạm vi thực hiện, cách đề tài gắn với yếu tố AI của học phần và cách phân công công việc trong nhóm sáu người.
+\setcounter{equation}{0}
+Chương này trình bày các kiến thức cần cho việc thiết kế thí nghiệm và giải thích kết quả: kiến trúc Edge--Cloud và điện toán biên, quy trình một vòng Federated Learning cùng lưu lượng mà nó sinh ra, mô hình phân tầng mạng và các cơ chế của TCP ảnh hưởng tới việc truyền một khối dữ liệu lớn, các chỉ số đo hiệu năng mạng, và các công cụ dùng để giả lập, lập trình và phân tích gói tin.
 
-\subsection{Bối cảnh}
-Federated Learning (FL) được McMahan và cộng sự đề xuất năm 2017 như một cách huấn luyện mô hình học máy trên dữ liệu phân tán mà không phải gom dữ liệu thô về một nơi \cite{mcmahan2017fedavg}. Mỗi vòng huấn luyện gồm ba bước: máy chủ phát mô hình toàn cục xuống các máy khách, mỗi máy khách huấn luyện trên dữ liệu cục bộ, rồi gửi tham số (hoặc độ chênh tham số) về để máy chủ lấy trung bình có trọng số. Dữ liệu riêng tư không rời thiết bị, nhưng đổi lại mỗi vòng phải truyền toàn bộ mô hình hai lần qua mạng cho mỗi máy khách.
+%=====================================================================
+\subsection{Tổng quan kiến trúc Edge--Cloud và Điện toán biên}
+\label{sec:1-1}
 
-Với các mô hình hiện nay, một bản tham số có thể nặng từ vài MB tới hàng trăm MB. Konečný và cộng sự chỉ ra rằng ở FL, chi phí truyền thông thường lớn hơn chi phí tính toán, vì đường lên của thiết bị chậm và không ổn định \cite{konecny2016communication}. Khi đưa FL ra vùng biên mạng \cite{shi2016edge}, các nút biên gửi bản cập nhật qua một switch chung tới một nút tổng hợp; mọi luồng dồn vào cùng một đường lên, và nếu nút tổng hợp đặt trên cloud thì còn phải đi thêm chặng WAN có độ trễ lớn. Các kiến trúc FL phân cấp client--edge--cloud \cite{liu2020hierfavg} ra đời chính vì lý do này.
+\subsubsection{Từ mô hình Cloud tập trung tới Edge Computing}
+Trong mô hình điện toán đám mây tập trung, thiết bị đầu cuối gửi dữ liệu về trung tâm dữ liệu để xử lý rồi nhận lại kết quả. Mô hình này có tài nguyên tính toán lớn và dễ quản lý, nhưng mọi yêu cầu đều phải đi qua mạng diện rộng (WAN): RTT tới trung tâm dữ liệu thường lên tới hàng chục ms, băng thông đường lên của thiết bị bị giới hạn, và lưu lượng từ hàng nghìn thiết bị dồn về lõi mạng.
 
-\subsection{Phát biểu bài toán}
-Cho một mạng gồm $N$ Edge Node nối vào một Edge Switch. Từ switch có hai đường tới nút tổng hợp: một đường ngắn tới Edge Aggregator đặt ngay tại vùng biên, và một đường qua Edge Gateway (router kiêm firewall) rồi qua liên kết WAN có giới hạn băng thông và độ trễ tới Cloud Server.
-Mỗi vòng đồng bộ, nút tổng hợp gửi một khối dữ liệu kích thước $S$ (mặc định 10 MB, tương ứng một checkpoint) tới từng Edge Node; mỗi Edge Node chờ một khoảng thời gian cố định thay cho việc huấn luyện rồi gửi lại một khối có kích thước $S$ (hoặc $S/10$ nếu nén). Vòng kết thúc khi nút tổng hợp nhận đủ $N$ bản cập nhật.
+Edge computing (điện toán biên) đưa một phần năng lực tính toán và lưu trữ tới gần nguồn sinh dữ liệu, ví dụ một máy chủ đặt ở trạm gốc, ở phòng máy của toà nhà hay trong mạng nội bộ của nhà máy \cite{shi2016edge}. Dữ liệu được xử lý ngay tại biên, chỉ kết quả đã rút gọn mới được gửi lên cloud. Lợi ích chính là độ trễ thấp hơn, giảm lưu lượng lên lõi mạng và giữ dữ liệu nhạy cảm ở gần chủ sở hữu.
 
-Nhóm không huấn luyện mô hình thật. Mạng chỉ thấy kích thước của khối dữ liệu, không thấy nội dung, nên một mảng byte 0 dài 10 MB thay được cho checkpoint. Toàn bộ phần cần phân tích nằm ở tầng mạng: băng thông, độ trễ, hành vi của TCP và điểm nghẽn tại nút tổng hợp.
-
-\subsection{Mục tiêu nghiên cứu}
-Mục tiêu chung của đề tài là định lượng chi phí truyền thông của một vòng đồng bộ FL trên mạng Edge--Cloud và chỉ ra yếu tố mạng nào quyết định thời gian của vòng đó. Mục tiêu chung được chia thành các mục tiêu cụ thể sau:
-\begin{enumerate}
-    \item Dựng được một topo Edge--Cloud trên Mininet có Edge Switch, Edge Aggregator, Edge Gateway (router kiêm firewall) và Cloud Server, với băng thông, độ trễ và kích thước hàng đợi của từng link được cấu hình qua tham số.
-    \item Thiết kế và cài đặt giao thức ứng dụng FLSync trên TCP để chạy một vòng đồng bộ đầy đủ: phát mô hình toàn cục, chờ huấn luyện, thu bản cập nhật và báo kết thúc vòng.
-    \item Xây dựng mô hình giải tích dự đoán $T_{down}$, $T_{up}$ và $T_{round}$ theo số Edge Node $N$, kích thước khối dữ liệu $S$, băng thông và RTT, rồi so sánh dự đoán với số đo.
-    \item Đo và giải thích sự thay đổi của $T_{round}$ khi $N$ tăng từ 2 lên 6 (Q1), khi nén bản cập nhật chiều lên còn 1/10 (Q2) và khi chuyển nút tổng hợp từ Edge lên Cloud (Q3).
-    \item Phân tích luồng gói bắt được bằng tcpdump/Wireshark để giải thích các con số đo: bắt tay TCP, slow start, hàng đợi tại link nghẽn và lọc gói tại firewall.
-\end{enumerate}
-
-\subsection{Đầu vào và đầu ra của đề tài}
-Đầu vào là các tham số mạng và tham số tải mà nhóm thay đổi khi chạy thí nghiệm (Bảng~\ref{tab:input}). Giá trị trong bảng lấy theo \texttt{topo.py} và \texttt{run\_experiments.py}.
-
-\begin{table}[H]
-    \centering
-    \caption{Đầu vào của đề tài}
-    \label{tab:input}
-    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=0.8\hsize}X >{\raggedright\arraybackslash\hsize=1.2\hsize}X}
-        \toprule
-        \textbf{Tham số đầu vào} & \textbf{Giá trị} \\
-        \midrule
-        Số Edge Node $N$ & 2, 3, 4, 5, 6 \\
-        \midrule
-        Link trong vùng biên (Edge Node--Edge Switch, Edge Switch--Edge Aggregator) & 100~Mbps, độ trễ 1~ms, hàng đợi 200 gói \\
-        \midrule
-        Liên kết WAN (Edge Gateway--switch phía cloud) & 100~Mbps hoặc 20~Mbps, độ trễ 20~ms, hàng đợi 200 gói \\
-        \midrule
-        Vị trí nút tổng hợp & Edge Aggregator (10.0.1.100) hoặc Cloud Server (10.0.2.200) \\
-        \midrule
-        Kích thước mô hình toàn cục (chiều xuống) & 10~MB \\
-        \midrule
-        Kích thước bản cập nhật (chiều lên) & 10~MB (gửi toàn bộ) hoặc 1~MB (nén 1/10) \\
-        \midrule
-        Thời gian huấn luyện cục bộ & 1~s (\texttt{sleep}) \\
-        \midrule
-        Số vòng mỗi lần chạy & 10 (bỏ vòng 1 khi tính trung bình) \\
-        \midrule
-        Luật firewall tại Edge Gateway & Mặc định chặn; chỉ cho Edge Node mở kết nối TCP cổng 5000 tới Cloud Server, cho phép ICMP echo \\
-        \bottomrule
-    \end{tabularx}
-\end{table}
-
-Đầu ra gồm phần mềm thí nghiệm, số liệu đo và các kết luận rút ra từ số liệu (Bảng~\ref{tab:output}).
-
-\begin{table}[H]
-    \centering
-    \caption{Đầu ra của đề tài}
-    \label{tab:output}
-    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=0.6\hsize}X >{\raggedright\arraybackslash\hsize=1.4\hsize}X}
-        \toprule
-        \textbf{Loại đầu ra} & \textbf{Nội dung} \\
-        \midrule
-        Mã nguồn & Topo Mininet (\texttt{topo.py}); giao thức FLSync (\texttt{flproto.py}); máy chủ và máy khách (\texttt{fl\_server.py}, \texttt{fl\_client.py}); kịch bản đo tự động (\texttt{run\_experiments.py}); script xử lý số liệu (\texttt{summarize.py}) \\
-        \midrule
-        Số liệu thô & Mỗi kịch bản và mỗi $N$: log từng vòng ($T_{down}$, $T_{up}$, $T_{round}$), log ping đo RTT khi có tải, file pcap bắt tại interface của nút tổng hợp \\
-        \midrule
-        Số liệu tổng hợp & File \texttt{measured\_*.csv}: trung bình $T_{down}$, $T_{up}$, $T_{round}$, độ lệch chuẩn của $T_{round}$ và thông lượng gộp pha upload theo $N$; file \texttt{model\_*.csv}: giá trị dự đoán của mô hình giải tích \\
-        \midrule
-        Biểu đồ và phân tích & Biểu đồ so sánh số đo với mô hình; phân tích luồng gói trên Wireshark (bắt tay, slow start, hàng đợi) \\
-        \midrule
-        Kết luận & Câu trả lời định lượng cho Q1, Q2, Q3 và khuyến nghị về vị trí đặt nút tổng hợp, việc nén bản cập nhật \\
-        \bottomrule
-    \end{tabularx}
-\end{table}
-
-\subsection{Câu hỏi nghiên cứu và chỉ số đo}
-Đề tài trả lời ba câu hỏi, mỗi câu gắn với các chỉ số đo cụ thể (Bảng~\ref{tab:rq}).
-
-\begin{table}[H]
-    \centering
-    \caption{Câu hỏi nghiên cứu và chỉ số đo}
-    \label{tab:rq}
-    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=1.1\hsize}X >{\raggedright\arraybackslash\hsize=0.9\hsize}X}
-        \toprule
-        \textbf{Câu hỏi} & \textbf{Chỉ số đo} \\
-        \midrule
-        Q1. Thời gian hoàn thành một vòng đồng bộ thay đổi thế nào khi số Edge Node tăng từ 2 lên 6? & $T_{round}$, $T_{down}$, $T_{up}$; thông lượng trên link tới Aggregator \\
-        \midrule
-        Q2. Gửi gradient đã nén (payload giảm còn 1/10) so với gửi toàn bộ mô hình thì RTT và $d_{trans}$ giảm bao nhiêu? & $T_{up}$, RTT đo bằng ping trong lúc truyền, số vòng slow start trên Wireshark \\
-        \midrule
-        Q3. Tổng hợp tại Edge so với tại Cloud chênh nhau bao nhiêu do RTT chặng WAN? & $T_{round}$ ở hai vị trí; phần chênh do bắt tay và slow start \\
-        \bottomrule
-    \end{tabularx}
-\end{table}
-
-\subsection{Phạm vi và giới hạn}
+\subsubsection{Đặc thù của hệ thống Edge--Cloud}
+Kiến trúc Edge--Cloud kết hợp hai tầng: các nút biên gần thiết bị và cloud ở xa. Hệ thống loại này có các đặc thù của một hệ phân tán:
 \begin{itemize}
-    \item Mạng được giả lập bằng Mininet \cite{lantz2010mininet} trên một máy ảo Linux; băng thông và độ trễ do \texttt{tc} (HTB và netem) áp đặt. Kết quả là hành vi của TCP Linux trong môi trường có kiểm soát; muốn biết số liệu trên mạng thật thì phải đo lại trên mạng thật.
-    \item Không có mất gói ngẫu nhiên; mất gói chỉ xảy ra khi hàng đợi tại link nghẽn bị đầy.
-    \item Thời gian huấn luyện cục bộ được thay bằng \texttt{sleep} cố định 1~s; thời gian tổng hợp (FedAvg) xem như bằng 0.
-    \item Giao thức ứng dụng do nhóm tự định nghĩa trên socket TCP. gRPC và MQTT được thảo luận ở phần hướng phát triển.
+    \item \textbf{Nhiều nút, phân tán về vị trí.} Dữ liệu và tính toán nằm rải rác trên nhiều Edge Node; không nút nào có toàn bộ thông tin.
+    \item \textbf{Liên kết không đồng nhất.} Trong vùng biên, các nút nối với nhau qua LAN có RTT vài ms và băng thông cao. Giữa vùng biên và cloud là chặng WAN có RTT lớn hơn một bậc và băng thông thường thấp hơn LAN.
+    \item \textbf{Cần đồng bộ.} Khi các nút cùng thực hiện một nhiệm vụ chung (như huấn luyện một mô hình), chúng phải trao đổi trạng thái định kỳ; tốc độ của cả hệ thống bị giới hạn bởi nút và liên kết chậm nhất.
+    \item \textbf{Điểm tập trung lưu lượng.} Nút điều phối (gateway, nút tổng hợp) nhận lưu lượng của mọi nút biên nên dễ trở thành điểm nghẽn.
 \end{itemize}
 
-\subsection{Yếu tố AI trong đề tài}
-Đề tài đăng ký Hướng 2 (Networking for AI) làm hướng chính: đối tượng nghiên cứu là hạ tầng mạng phục vụ một hệ thống AI phân tán, cụ thể là lưu lượng đồng bộ tham số của FL. Câu hỏi Q2 gắn trực tiếp với các kỹ thuật nén gradient trong học sâu phân tán như Deep Gradient Compression \cite{lin2018dgc}.
+Bảng~\ref{tab:edgecloud} so sánh hai vị trí đặt nút xử lý trung tâm.
 
-\subsection{Phân công công việc}
 \begin{table}[H]
     \centering
-    \caption{Phân công công việc trong nhóm}
-    \label{tab:assign}
-    \begin{tabularx}{\textwidth}{c >{\raggedright\arraybackslash\hsize=0.6\hsize}X >{\raggedright\arraybackslash\hsize=1.4\hsize}X}
+    \caption{So sánh đặt nút xử lý tại biên và trên cloud}
+    \label{tab:edgecloud}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=0.6\hsize}X >{\raggedright\arraybackslash\hsize=1.2\hsize}X >{\raggedright\arraybackslash\hsize=1.2\hsize}X}
         \toprule
-        \textbf{TT} & \textbf{Thành viên} & \textbf{Nhiệm vụ} \\
+        \textbf{Tiêu chí} & \textbf{Tại biên (Edge)} & \textbf{Trên cloud} \\
         \midrule
-        1 & [Thành viên 1] & Dựng topo Mininet (\texttt{topo.py}) và firewall của Edge Gateway, kiểm tra băng thông/độ trễ bằng ping và iperf. Viết Chương 2 và mục topo ở Chương 3 \\
+        Vị trí & Cùng mạng cục bộ với Edge Node & Trung tâm dữ liệu, sau chặng WAN \\
         \midrule
-        2 & [Thành viên 2] & Viết giao thức FLSync (\texttt{flproto.py}) và \texttt{fl\_server.py}. Viết mục giao thức FLSync ở Chương 3 \\
+        RTT & Vài ms & Hàng chục ms trở lên \\
         \midrule
-        3 & [Thành viên 3] & Viết \texttt{fl\_client.py}, \texttt{run\_experiments.py}; chạy và phân tích kịch bản K1 (Q1). Viết mục kịch bản và quy trình đo ở Chương 4, kết quả Q1 ở Chương 5 \\
+        Băng thông & Bằng mạng LAN biên & Bị giới hạn bởi chặng WAN \\
         \midrule
-        4 & [Thành viên 4] & Bắt gói bằng tcpdump/Wireshark; chạy và phân tích kịch bản K2 (Q2). Viết mục phân tích luồng gói ở Chương 3, kết quả Q2 ở Chương 5 \\
+        Tài nguyên tính toán & Hạn chế & Lớn, dễ mở rộng \\
         \midrule
-        5 & [Thành viên 5] & Xây dựng mô hình giải tích (\texttt{model.py}); chạy và phân tích kịch bản K3 (Q3). Viết mục mô hình ở Chương 4, kết quả Q3 ở Chương 5 \\
-        \midrule
-        6 & [Thành viên 6] & Xử lý số liệu (\texttt{summarize.py}), vẽ toàn bộ biểu đồ. Viết Chương 1, Kết luận; ghép báo cáo, làm slide \\
+        Phạm vi dữ liệu & Chỉ các nút trong vùng & Mọi vùng biên \\
         \bottomrule
     \end{tabularx}
 \end{table}
 
-\subsection{Cấu trúc báo cáo}
-Chương 2 tóm tắt cơ sở lý thuyết về FL, các thành phần độ trễ và cơ chế của TCP. Chương 3 trình bày topo mạng, giao thức FLSync và phân tích luồng gói của một vòng đồng bộ qua các tầng. Chương 4 xây dựng mô hình giải tích và mô tả các kịch bản đo. Chương 5 trình bày kết quả và trả lời ba câu hỏi nghiên cứu. Phần kết luận tổng kết và nêu hướng phát triển.
+Hai vị trí này có thể kết hợp. Kiến trúc phân cấp client--edge--cloud HierFAVG \cite{liu2020hierfavg} tổng hợp nhiều lần ở biên rồi mới gửi một bản lên cloud. Lim và cộng sự tổng kết các hướng giảm chi phí truyền thông khi đưa học máy phân tán vào mạng biên \cite{lim2020survey}. Đề tài này dựng cả hai vị trí trên cùng một topo (Mục~\ref{sec:2-3}) để so sánh trực tiếp.
+
+%=====================================================================
+\subsection{Tổng quan về Federated Learning (FL)}
+\label{sec:1-2}
+
+\subsubsection{Khái niệm và quy trình một vòng}
+Federated Learning (FL) được McMahan và cộng sự đề xuất năm 2017 như một cách huấn luyện mô hình học máy trên dữ liệu phân tán mà không phải gom dữ liệu thô về một nơi \cite{mcmahan2017fedavg}. Hệ thống gồm một nút tổng hợp (aggregator, server) và nhiều máy khách (client) giữ dữ liệu riêng. Quá trình huấn luyện gồm nhiều vòng (aggregation round); mỗi vòng có bốn bước:
+\begin{enumerate}
+    \item Nút tổng hợp phát tham số mô hình toàn cục $w_t$ xuống $N$ máy khách (chiều xuống).
+    \item Mỗi máy khách huấn luyện vài epoch trên dữ liệu cục bộ, thu được $w_{t+1}^{k}$.
+    \item Máy khách gửi tham số mới, hoặc độ chênh tham số (gradient, $w_{t+1}^{k} - w_t$), về nút tổng hợp (chiều lên).
+    \item Nút tổng hợp kết hợp các bản cập nhật thành mô hình toàn cục mới và bắt đầu vòng sau.
+\end{enumerate}
+
+\subsubsection{Thuật toán FedAvg}
+Trong thuật toán FedAvg \cite{mcmahan2017fedavg}, máy khách $k$ có $n_k$ mẫu dữ liệu. Nút tổng hợp lấy trung bình có trọng số:
+\begin{equation}
+    w_{t+1} = \sum_{k=1}^{N} \frac{n_k}{n}\, w_{t+1}^{k}, \qquad n = \sum_{k=1}^{N} n_k
+    \label{eq:fedavg}
+\end{equation}
+Phép tổng hợp chỉ là cộng có trọng số nên tốn rất ít thời gian so với việc truyền dữ liệu.
+
+\subsubsection{Bài toán truyền tải trọng số giữa Edge Node và Aggregator}
+Nếu mỗi bản mô hình có kích thước $S$ byte thì một vòng sinh ra $N \cdot S$ byte theo chiều xuống và $N \cdot S$ byte theo chiều lên, \emph{tất cả đều đi qua giao diện mạng của nút tổng hợp}. Đây là lý do nút tổng hợp là điểm nghẽn tự nhiên của hệ thống.
+
+FL thường chạy đồng bộ: một vòng chỉ kết thúc khi bản cập nhật \emph{cuối cùng} tới nơi. Vì vậy thời gian vòng bằng thời gian của máy khách chậm nhất (straggler). Trong hệ thống FL của Google, Bonawitz và cộng sự xử lý việc này bằng cách chọn nhiều thiết bị hơn số cần cho mỗi vòng rồi bỏ qua các thiết bị báo cáo muộn \cite{bonawitz2019towards}.
+
+Để giảm lưu lượng, có thể nén bản cập nhật: lượng tử hoá, hoặc chỉ gửi các phần tử gradient lớn nhất. Deep Gradient Compression báo cáo mức nén 270--600 lần mà không giảm độ chính xác \cite{lin2018dgc}. Đề tài chọn mức nén 1/10 như một giá trị thận trọng và chỉ quan tâm tới tác động của nó lên mạng.
+
+%=====================================================================
+\subsection{Nền tảng mạng máy tính và giao thức truyền tải TCP}
+\label{sec:1-3}
+
+\subsubsection{Mô hình phân tầng OSI và TCP/IP}
+Mô hình OSI chia chức năng truyền thông thành bảy tầng; bộ giao thức TCP/IP dùng trên Internet gộp lại thành bốn tầng \cite{kurose2021computer}. Mỗi tầng chỉ dùng dịch vụ của tầng ngay dưới và thêm header của mình vào dữ liệu nhận từ tầng trên (đóng gói, encapsulation). Bảng~\ref{tab:osi} đối chiếu hai mô hình và chỉ ra giao thức tương ứng trong hệ thống của đề tài.
+
+\begin{table}[H]
+    \centering
+    \caption{Đối chiếu mô hình OSI, TCP/IP và các giao thức trong đề tài}
+    \label{tab:osi}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=0.8\hsize}X >{\raggedright\arraybackslash\hsize=0.7\hsize}X >{\raggedright\arraybackslash\hsize=0.6\hsize}X >{\raggedright\arraybackslash\hsize=1.9\hsize}X}
+        \toprule
+        \textbf{Tầng OSI} & \textbf{Tầng TCP/IP} & \textbf{Đơn vị dữ liệu} & \textbf{Trong đề tài} \\
+        \midrule
+        7 Ứng dụng, 6 Trình diễn, 5 Phiên & Ứng dụng & Thông điệp & Giao thức FLSync (header 20 byte, tuần tự hoá big-endian) \\
+        \midrule
+        4 Giao vận & Giao vận & Đoạn (segment) & TCP cổng 5000, MSS 1460 byte \\
+        \midrule
+        3 Mạng & Mạng (Internet) & Gói (packet) & IPv4, định tuyến qua Edge Gateway \texttt{r1}, lọc gói bằng iptables \\
+        \midrule
+        2 Liên kết dữ liệu, 1 Vật lý & Truy nhập mạng & Khung (frame) & Ethernet qua Open vSwitch và cặp giao diện ảo \texttt{veth} \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+Khi một thông điệp FLSync 10 MB đi xuống các tầng, TCP chia nó thành nhiều đoạn vừa với MSS, IP thêm header 20 byte và Ethernet thêm header 14 byte. Hình~\ref{fig:encap} ở Mục~\ref{sec:2-4} minh hoạ chi tiết quá trình này.
+
+\subsubsection{Bắt tay ba bước}
+TCP \cite{rfc9293} là giao thức hướng kết nối, tin cậy, truyền luồng byte có thứ tự. Kết nối được thiết lập bằng bắt tay ba bước: bên khởi tạo gửi SYN, bên nhận trả SYN-ACK, bên khởi tạo gửi ACK. Bên khởi tạo chỉ gửi được dữ liệu sau một RTT. Trong lúc bắt tay hai bên trao đổi các tuỳ chọn: MSS (mặc định 1460 byte trên Ethernet), Window Scale, SACK Permitted và Timestamps. Khi dùng Timestamps, mỗi đoạn mang thêm 12 byte tuỳ chọn nên phần tải tin thực tế còn 1448 byte. Kết nối được đóng bằng trao đổi FIN theo cả hai chiều.
+
+\subsubsection{Cửa sổ trượt và điều khiển luồng}
+Bên gửi được phép có tối đa $\min(cwnd, rwnd)$ byte đang bay (đã gửi, chưa được xác nhận). $rwnd$ do bên nhận quảng bá theo chỗ trống bộ đệm; $cwnd$ do bên gửi tự điều chỉnh theo tình trạng mạng. Thông lượng tối đa của một luồng xấp xỉ:
+\begin{equation}
+    \text{Thông lượng} \approx \frac{\min(cwnd, rwnd)}{RTT}
+    \label{eq:tput}
+\end{equation}
+Để lấp đầy link, cửa sổ phải đạt ít nhất tích băng thông--độ trễ:
+\begin{equation}
+    BDP = B \cdot RTT
+    \label{eq:bdp}
+\end{equation}
+Với $B = 100$ Mbps và các RTT của topo ở Mục~\ref{sec:2-3}: ở biên ($RTT = 4$~ms) $BDP = 50$~KB; qua WAN ($RTT = 44$~ms) $BDP = 550$~KB.
+
+\subsubsection{Điều khiển tắc nghẽn và TCP Slow Start}
+RFC 5681 \cite{rfc5681} quy định hai pha chính. Trong slow start, $cwnd$ bắt đầu từ cửa sổ khởi đầu IW và tăng thêm một MSS cho mỗi ACK, tức là gấp đôi sau mỗi RTT. Linux dùng $IW = 10$ MSS theo RFC 6928 \cite{rfc6928}, khoảng 14{,}5~KB. Khi gặp mất gói hoặc vượt ngưỡng $ssthresh$, TCP chuyển sang pha tránh tắc nghẽn; Linux mặc định dùng thuật toán CUBIC \cite{rfc9438} cho pha này.
+
+Số RTT cần để $cwnd$ từ IW đạt BDP là:
+\begin{equation}
+    k^{*} = \left\lceil \log_2 \frac{BDP}{IW} \right\rceil
+    \label{eq:kstar}
+\end{equation}
+Ở biên, $k^{*} = \lceil \log_2(50/14{,}5) \rceil = 2$ RTT, tức 8~ms, bỏ qua được. Qua WAN, $k^{*} = \lceil \log_2(550/14{,}5) \rceil = 6$ RTT, tức 264~ms. Với khối 10 MB truyền mất gần 1~s, 264~ms này chiếm khoảng một phần tư; với khối 1 MB, phần lớn thời gian truyền nằm trong slow start.
+
+Ở FL, giữa hai lần gửi luôn có khoảng nghỉ huấn luyện. RFC 5681 (mục 4.1) khuyến nghị đặt lại $cwnd$ về cửa sổ khởi động lại nếu kết nối nghỉ lâu hơn một RTO; Linux bật mặc định qua tham số \nolinkurl{net.ipv4.tcp_slow_start_after_idle = 1}. Do đó \emph{dù giữ kết nối TCP lâu dài, mỗi vòng FL vẫn phải trả lại chi phí slow start}. Bản bắt gói ở Hình~\ref{fig:ws-stevens} (Mục~\ref{sec:2-7}) xác nhận điều này: đầu vòng 2, luồng lại bắt đầu từ IW = 10 gói.
+
+\subsubsection{Chia sẻ băng thông giữa các luồng}
+Khi $N$ luồng TCP có cùng RTT đi qua một link nghẽn, cơ chế điều khiển tắc nghẽn đưa mỗi luồng về xấp xỉ $B/N$. Hệ quả là các Edge Node kết thúc gần như cùng lúc, và thời gian truyền $N$ khối gần bằng thời gian truyền một khối lớn gấp $N$ lần, xấp xỉ $8NS/(\eta B)$ khi khối đủ lớn.
+
+\subsubsection{Thông lượng TCP khi có mất gói ngẫu nhiên}
+Khi đường truyền mất gói ngẫu nhiên với tỉ lệ $p$, mỗi lần mất gói TCP giảm cửa sổ tắc nghẽn, nên cửa sổ không còn lấp đầy được link. Mathis và cộng sự chỉ ra rằng thông lượng trung bình của một luồng TCP khi đó xấp xỉ \cite{mathis1997macroscopic}:
+\begin{equation}
+    X(p, R) \approx \frac{MSS}{R}\sqrt{\frac{3}{2p}}
+    \label{eq:mathis}
+\end{equation}
+với $R$ là RTT. Công thức cho thấy thông lượng giảm theo $1/\sqrt{p}$ và tỉ lệ nghịch với RTT, nên mất gói gây hại nhiều hơn khi nút tổng hợp ở xa. Công thức bỏ qua timeout (RTO), vốn xuất hiện nhiều khi $p$ lớn, nên thời gian truyền thực tế thường dài hơn giá trị suy ra từ~\eqref{eq:mathis}.
+
+%=====================================================================
+\subsection{Các chỉ số đo lường hiệu năng mạng (Network Metrics)}
+\label{sec:1-4}
+
+\subsubsection{Các thành phần độ trễ của một gói}
+Theo Kurose và Ross (mục 1.4) \cite{kurose2021computer}, độ trễ của một gói tại mỗi nút gồm bốn thành phần:
+\begin{equation}
+    d_{nodal} = d_{proc} + d_{queue} + d_{trans} + d_{prop}
+    \label{eq:dnodal}
+\end{equation}
+trong đó:
+\begin{itemize}
+    \item $d_{proc}$: thời gian xử lý header, tra bảng chuyển tiếp; cỡ micro giây, bỏ qua được.
+    \item $d_{queue}$: thời gian chờ trong hàng đợi đầu ra; phụ thuộc mức tải.
+    \item $d_{trans} = L/R$: thời gian đẩy toàn bộ $L$ bit của gói lên đường truyền tốc độ $R$.
+    \item $d_{prop} = d/s$: thời gian tín hiệu lan truyền trên quãng đường $d$ với tốc độ $s$.
+\end{itemize}
+
+Với một khối 10 MB (80 Mbit) qua link 100 Mbps, riêng $d_{trans}$ của cả khối đã là 0{,}8~s, lớn hơn rất nhiều so với $d_{prop}$ của một link WAN điển hình (vài chục ms). Vì vậy với khối lớn, băng thông là yếu tố chính; với khối nhỏ, RTT và số vòng khứ hồi mới là yếu tố chính. Câu hỏi Q1 (quét băng thông 1--100~Mbps) và Q3 (nén bản cập nhật, vị trí nút tổng hợp) khai thác đúng ranh giới này; câu hỏi Q2 xét trường hợp RTT và mất gói cùng giới hạn tốc độ của TCP.
+
+\subsubsection{Độ trễ truyền tải các pha của vòng FL}
+Ở mức ứng dụng, một vòng đồng bộ được chia thành các pha, và đề tài đo thời gian của từng pha:
+\begin{itemize}
+    \item $T_{down}$: thời gian phát mô hình toàn cục xuống, tính tới khi Edge Node cuối cùng nhận đủ.
+    \item $T_{train}$: thời gian huấn luyện cục bộ.
+    \item $T_{up}$: thời gian gửi bản cập nhật lên, tính tới khi bản cập nhật cuối cùng tới nút tổng hợp.
+    \item $T_{agg}$: thời gian tổng hợp theo~\eqref{eq:fedavg}.
+\end{itemize}
+Nếu các pha nối tiếp nhau, thời gian một vòng là:
+\begin{equation}
+    T_{round} = T_{down} + T_{train} + T_{up} + T_{agg}
+    \label{eq:tround}
+\end{equation}
+Cách lấy mốc thời gian cho từng pha trong chương trình được nêu ở Mục~\ref{sec:2-6}.
+
+\subsubsection{Độ trễ khứ hồi (RTT)}
+RTT là thời gian từ lúc gửi một gói tới lúc nhận được phản hồi cho gói đó. Khi mạng rảnh, RTT gần bằng hai lần tổng $d_{prop}$ và $d_{trans}$ của gói nhỏ trên đường đi; đây là RTT cơ sở. Khi có tải, gói phải chờ thêm trong các hàng đợi nên RTT tăng. Đề tài đo RTT bằng \texttt{ping}: lúc rảnh để kiểm tra cấu hình topo, và chạy liên tục trong lúc truyền để thấy RTT khi có tải.
+
+\subsubsection{Thông lượng}
+Thông lượng là lượng dữ liệu truyền được trong một đơn vị thời gian. Đề tài dùng thông lượng tầng ứng dụng (goodput), chỉ tính phần tải tin:
+\begin{equation}
+    \text{Thông lượng} = \frac{8 \cdot D}{T}
+    \label{eq:goodput}
+\end{equation}
+với $D$ là số byte tải tin và $T$ là thời gian truyền. Do header của các tầng chiếm một phần băng thông, thông lượng ứng dụng luôn nhỏ hơn tốc độ link $B$; tỷ lệ giữa hai đại lượng là hiệu suất $\eta$ tính ở Mục~\ref{sec:2-4}. Khi $N$ luồng chia một link, ta xét cả thông lượng gộp ($8ND/T$) và phần của mỗi luồng.
+
+\subsubsection{Nghẽn hàng đợi (Bufferbloat)}
+Khi $N$ luồng cùng đi qua một link tốc độ $B$, hàng đợi tại đầu link bắt đầu đầy. Một hàng đợi chứa $Q$ gói kích thước $L$ thêm vào mỗi gói một độ trễ tối đa:
+\begin{equation}
+    d_{queue}^{max} = \frac{Q \cdot L}{B}
+    \label{eq:dqueue}
+\end{equation}
+Với $Q = 200$ gói, $L = 1514$ byte và $B = 100$ Mbps, $d_{queue}^{max} \approx 24$~ms. Hiện tượng hàng đợi lớn làm RTT tăng vọt khi có tải được gọi là bufferbloat. Hàng đợi quá nhỏ thì ngược lại: gói bị bỏ thường xuyên, TCP phải truyền lại và giảm cửa sổ.
+
+%=====================================================================
+\subsection{Công cụ mô phỏng mạng và tự động hóa}
+\label{sec:1-5}
+
+\subsubsection{Mininet và Open vSwitch}
+Mininet \cite{lantz2010mininet} tạo các host ảo bằng network namespace của Linux: mỗi host có bảng định tuyến, giao diện mạng và ngăn xếp TCP/IP riêng nhưng dùng chung nhân hệ điều hành. Các host được nối bằng cặp giao diện ảo \texttt{veth}. Topo có thể khai báo bằng một script Python, nên dễ tạo lại giống hệt nhau cho mỗi lần đo.
+
+Switch trong Mininet mặc định là Open vSwitch (OVS), một switch ảo phần mềm chạy trong nhân Linux. OVS có thể hoạt động như switch OpenFlow do controller điều khiển, hoặc như một bridge L2 tự học địa chỉ MAC theo cổng vào. Đề tài dùng chế độ bridge (\texttt{OVSBridge}) vì không cần điều khiển SDN.
+
+Lớp \texttt{TCLink} của Mininet gắn hai bộ lọc \texttt{tc} lên mỗi đầu link: HTB giới hạn tốc độ theo tham số \texttt{bw}, còn netem thêm độ trễ theo tham số \texttt{delay} và giới hạn hàng đợi theo \nolinkurl{max_queue_size}. Vì độ trễ được đặt trên \emph{mỗi đầu} của link, gói đi qua một link theo một chiều chịu đúng một lần \texttt{delay}. RTT giữa hai host bằng hai lần tổng độ trễ các link trên đường đi. Ví dụ với lệnh \texttt{sudo mn -{}-link tc,bw=10,delay=20ms}, đường h1--s1--h2 có hai link nên RTT $\approx 2 \times (20 + 20) = 80$~ms. Handigol và cộng sự đã dùng Mininet tái tạo kết quả của nhiều bài báo mạng đã công bố \cite{handigol2012reproducible}. Điều kiện là máy chạy giả lập không thiếu CPU.
+
+\subsubsection{Lập trình Socket trong Python}
+Module \texttt{socket} của Python bọc giao diện socket của hệ điều hành. Một chương trình máy chủ TCP gọi lần lượt \texttt{socket()}, \texttt{bind()}, \texttt{listen()} rồi \texttt{accept()} để nhận từng kết nối; máy khách gọi \texttt{create\_connection()} để bắt tay ba bước với máy chủ. Sau đó hai bên trao đổi dữ liệu bằng \texttt{sendall()} và \texttt{recv()}. Các điểm sau ảnh hưởng trực tiếp tới thiết kế giao thức và cách đo:
+\begin{itemize}
+    \item \textbf{TCP là luồng byte.} Một lần \texttt{recv()} có thể trả về một phần thông điệp hoặc phần cuối thông điệp này cùng phần đầu thông điệp sau. Ứng dụng phải tự đóng khung (framing), thường bằng một header có trường độ dài.
+    \item \textbf{Tuần tự hoá header.} Module \texttt{struct} chuyển các trường số nguyên thành chuỗi byte theo định dạng cố định, ví dụ thứ tự byte mạng (big-endian) với ký hiệu \texttt{!}.
+    \item \textbf{\texttt{sendall()} trả về sớm.} Hàm trả quyền khi dữ liệu đã vào bộ đệm gửi của hệ điều hành, chưa chắc đã tới đích. Muốn biết bên kia đã nhận đủ, cần một xác nhận ở tầng ứng dụng.
+    \item \textbf{Thuật toán Nagle.} TCP mặc định gom các đoạn nhỏ để gửi cùng lúc. Tuỳ chọn \texttt{TCP\_NODELAY} tắt cơ chế này để thông điệp ngắn đi ngay.
+    \item \textbf{Đa luồng.} Máy chủ phục vụ $N$ kết nối song song bằng module \texttt{threading}, mỗi kết nối một luồng, để các luồng TCP cùng cạnh tranh trên link như trong thực tế.
+\end{itemize}
+
+\subsubsection{Công cụ bắt và phân tích gói tin: tcpdump và Wireshark}
+\texttt{tcpdump} ghi gói trên một giao diện ra file \texttt{.pcap}, có thể lọc theo giao thức, cổng và chỉ lấy một số byte đầu mỗi gói (tham số \texttt{-s}) để file nhỏ. Wireshark đọc file đó, giải mã từng tầng và cung cấp:
+\begin{itemize}
+    \item bộ lọc hiển thị, ví dụ \texttt{tcp.port == 5000} để chỉ xem lưu lượng FLSync, hoặc \nolinkurl{tcp.analysis.retransmission} để lọc gói truyền lại;
+    \item \emph{Statistics $\rightarrow$ TCP Stream Graphs $\rightarrow$ Stevens/tcptrace}: số thứ tự theo thời gian, nhìn thấy rõ từng đợt slow start;
+    \item \emph{Statistics $\rightarrow$ I/O Graphs}: thông lượng theo thời gian của từng luồng;
+    \item \emph{Statistics $\rightarrow$ Conversations}: tổng byte và thời gian của mỗi kết nối.
+\end{itemize}
+\texttt{tshark} là bản dòng lệnh của Wireshark, dùng để trích số liệu từ file pcap bằng script (ví dụ \texttt{tshark -z io,stat,1}). Trước khi bắt gói cần tắt các cơ chế offload (TSO, GSO, GRO) trên giao diện; nếu không, tcpdump sẽ thấy các ``gói'' 64~KB do nhân ghép lại thay vì từng đoạn cỡ MSS.
+
+%=====================================================================
+\subsection{Kết luận chương}
+Một vòng FL đồng bộ dồn $2NS$ byte qua giao diện của nút tổng hợp. Với khối lớn, thời gian vòng chủ yếu do $d_{trans}$ trên link nghẽn và tăng tuyến tính theo $N$. Với khối nhỏ hoặc RTT lớn, slow start (lặp lại mỗi vòng do khoảng nghỉ huấn luyện) chiếm từ một phần tư tới phần lớn thời gian truyền. Khi nhiều luồng cùng đi qua một link, hàng đợi đầy làm RTT tăng (bufferbloat). Mininet, socket Python và tcpdump/Wireshark là các công cụ để dựng, chạy và quan sát các hiện tượng này; Chương~2 dùng chúng để thiết kế và thực hiện thí nghiệm.
 
 \cleardoublepage

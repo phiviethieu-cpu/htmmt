@@ -1,96 +1,1270 @@
-\chaptercustom{2}{CƠ SỞ LÝ THUYẾT}
+\chaptercustom{2}{THIẾT KẾ HỆ THỐNG, TRIỂN KHAI VÀ THỰC NGHIỆM ĐÁNH GIÁ}
 \setcounter{section}{2}
 \setcounter{equation}{0}
-Chương này tóm tắt các kiến thức cần cho việc thiết kế thí nghiệm và giải thích kết quả: quy trình một vòng Federated Learning và lưu lượng mà nó sinh ra, kiến trúc Edge--Cloud, bốn thành phần độ trễ của một gói tin, các cơ chế của TCP ảnh hưởng tới việc truyền một khối dữ liệu lớn, và cách Mininet giả lập băng thông, độ trễ.
+Chương này đi từ khảo sát hiện trạng và đặc tả bài toán tới thiết kế topo mạng, giao thức FLSync, các module phần mềm, giả thiết và kịch bản đo, rồi trình bày kết quả thực nghiệm cho ba câu hỏi nghiên cứu Q1--Q3.
 
-\subsection{Federated Learning và lưu lượng đồng bộ}
-Trong thuật toán FedAvg \cite{mcmahan2017fedavg}, ở vòng $t$ máy chủ gửi tham số toàn cục $w_t$ cho $N$ máy khách. Máy khách $k$ có $n_k$ mẫu dữ liệu, huấn luyện cục bộ vài epoch để được $w_{t+1}^{k}$ rồi gửi lại. Máy chủ tổng hợp:
-\begin{equation}
-    w_{t+1} = \sum_{k=1}^{N} \frac{n_k}{n}\, w_{t+1}^{k}, \qquad n = \sum_{k=1}^{N} n_k
-    \label{eq:fedavg}
-\end{equation}
+%=====================================================================
+\subsection{Khảo sát thực tế và hiện trạng bài toán truyền tải trong Federated Learning}
+\label{sec:2-1}
 
-Phép tổng hợp chỉ là cộng có trọng số nên tốn rất ít thời gian so với việc truyền dữ liệu. Nếu mỗi bản mô hình có kích thước $S$ byte thì một vòng sinh ra $N \cdot S$ byte theo chiều xuống và $N \cdot S$ byte theo chiều lên, \emph{tất cả đều đi qua giao diện mạng của nút tổng hợp}. Đây là lý do nút tổng hợp là điểm nghẽn tự nhiên của hệ thống.
+\subsubsection{Chi phí truyền thông trong các hệ thống FL}
+Với các mô hình hiện nay, một bản tham số có thể nặng từ vài MB tới hàng trăm MB. Konečný và cộng sự chỉ ra rằng ở FL, chi phí truyền thông thường lớn hơn chi phí tính toán, vì đường lên của thiết bị chậm và không ổn định \cite{konecny2016communication}. Trong hệ thống FL triển khai thực tế của Google, Bonawitz và cộng sự mô tả các vấn đề vận hành phát sinh từ mạng: thiết bị chỉ tham gia khi có kết nối phù hợp, một số thiết bị bỏ dở giữa vòng, và máy chủ phải chọn dư thiết bị để vòng không bị kéo dài bởi các thiết bị chậm \cite{bonawitz2019towards}.
 
-Một vòng chỉ kết thúc khi bản cập nhật \emph{cuối cùng} tới nơi (đồng bộ). Vì vậy thời gian vòng bằng thời gian của máy khách chậm nhất. Trong hệ thống FL của Google, Bonawitz và cộng sự xử lý việc này bằng cách chọn nhiều thiết bị hơn số cần cho mỗi vòng rồi bỏ qua các thiết bị báo cáo muộn \cite{bonawitz2019towards}.
+Khi đưa FL ra vùng biên mạng \cite{shi2016edge}, các Edge Node gửi bản cập nhật qua một switch chung tới một nút tổng hợp. Mọi luồng dồn vào cùng một đường lên, và nếu nút tổng hợp đặt trên cloud thì còn phải đi thêm chặng WAN có độ trễ lớn.
 
-Để giảm lưu lượng, có thể nén bản cập nhật: lượng tử hoá, chỉ gửi các phần tử gradient lớn nhất. Deep Gradient Compression báo cáo mức nén 270--600 lần mà không giảm độ chính xác \cite{lin2018dgc}. Đề tài này chọn mức nén 1/10 như một giá trị thận trọng, chỉ quan tâm tới tác động của nó lên mạng.
+\subsubsection{Các hướng giải quyết hiện có}
+Bảng~\ref{tab:survey} tóm tắt các hướng giảm chi phí truyền thông đã được đề xuất và mối liên hệ với đề tài.
 
-\subsection{Kiến trúc Edge--Cloud}
-Edge computing đưa năng lực tính toán tới gần nguồn dữ liệu để giảm độ trễ và lưu lượng lên lõi mạng \cite{shi2016edge}. Với FL, nút tổng hợp có thể đặt tại biên, tức một máy chủ cùng mạng cục bộ với các Edge Node (RTT vài ms, băng thông bằng mạng LAN). Nó cũng có thể đặt trên cloud, ở trung tâm dữ liệu; khi đó mọi bản cập nhật phải đi qua liên kết WAN có RTT hàng chục ms và băng thông thường thấp hơn LAN.
-Kiến trúc phân cấp HierFAVG \cite{liu2020hierfavg} kết hợp cả hai: tổng hợp nhiều lần ở biên rồi mới gửi một bản lên cloud. Lim và cộng sự tổng kết các hướng giảm chi phí truyền thông của FL trong mạng biên \cite{lim2020survey}.
+\begin{table}[H]
+    \centering
+    \caption{Các hướng giảm chi phí truyền thông trong FL}
+    \label{tab:survey}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=0.7\hsize}X >{\raggedright\arraybackslash\hsize=1.3\hsize}X >{\raggedright\arraybackslash\hsize=1.0\hsize}X}
+        \toprule
+        \textbf{Hướng} & \textbf{Ý tưởng} & \textbf{Liên hệ với đề tài} \\
+        \midrule
+        Giảm số vòng \cite{mcmahan2017fedavg} & Máy khách huấn luyện nhiều epoch cục bộ trước khi gửi, ít vòng đồng bộ hơn & Đề tài giữ cố định cách huấn luyện, đo số vòng và thời gian để đạt độ chính xác mục tiêu (Q2) \\
+        \midrule
+        Nén bản cập nhật \cite{konecny2016communication, lin2018dgc} & Lượng tử hoá, chỉ gửi phần tử gradient lớn, giảm kích thước chiều lên & Câu hỏi Q3: nén chiều lên còn 1/10 \\
+        \midrule
+        Tổng hợp phân cấp \cite{liu2020hierfavg} & Tổng hợp ở biên trước, chỉ gửi một bản lên cloud & Câu hỏi Q3: so sánh tổng hợp tại Edge và tại Cloud \\
+        \midrule
+        Chọn máy khách, bỏ nút chậm \cite{bonawitz2019towards} & Chọn dư máy khách, bỏ qua bản cập nhật tới muộn & Câu hỏi Q1: băng thông biên và số nút $N$ chia sẻ link nghẽn \\
+        \midrule
+        Tổng kết cho mạng biên \cite{lim2020survey} & Phân loại các kỹ thuật theo tài nguyên, truyền thông, quyền riêng tư & Dùng làm khung khảo sát \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
 
-\subsection{Các thành phần độ trễ}
-Theo Kurose và Ross (mục 1.4) \cite{kurose2021computer}, độ trễ của một gói tại mỗi nút gồm bốn thành phần:
-\begin{equation}
-    d_{nodal} = d_{proc} + d_{queue} + d_{trans} + d_{prop}
-    \label{eq:dnodal}
-\end{equation}
-trong đó:
+\subsubsection{Thách thức còn lại}
+Các công trình nén gradient thường đánh giá bằng tỷ lệ nén và độ chính xác của mô hình; các công trình tổng hợp phân cấp đánh giá bằng số vòng hoặc số byte cần truyền. Tuy nhiên, thời gian thực tế của một vòng còn phụ thuộc vào cách TCP truyền khối dữ liệu đó: slow start, chia sẻ băng thông giữa các luồng, hàng đợi tại link nghẽn. Giảm 10 lần số byte chưa chắc giảm 10 lần thời gian. Từ đó nhóm xác định ba thách thức cần làm rõ:
 \begin{itemize}
-    \item $d_{proc}$: thời gian xử lý header, tra bảng chuyển tiếp; cỡ micro giây, bỏ qua được.
-    \item $d_{queue}$: thời gian chờ trong hàng đợi đầu ra; phụ thuộc mức tải.
-    \item $d_{trans} = L/R$: thời gian đẩy toàn bộ $L$ bit của gói lên đường truyền tốc độ $R$.
-    \item $d_{prop} = d/s$: thời gian tín hiệu lan truyền trên quãng đường $d$ với tốc độ $s$.
+    \item Băng thông chặng biên--cloud thường hẹp và thay đổi theo vị trí triển khai; thời gian một vòng giãn ra thế nào khi băng thông giảm từ 100~Mbps xuống 1~Mbps, và khi nhiều Edge Node cùng chia một link nghẽn.
+    \item Mạng biên (vô tuyến, WAN đường dài) có mất gói và độ trễ lớn. TCP bảo đảm dữ liệu tới đủ nên độ chính xác mỗi vòng không đổi, nhưng thời gian để mô hình hội tụ tăng bao nhiêu.
+    \item Giao thức truyền tải tốn bao nhiêu byte ngoài trọng số mô hình (header các tầng, ACK, truyền lại), và các biện pháp như nén bản cập nhật hay tổng hợp tại biên giúp được bao nhiêu khi triển khai thật.
 \end{itemize}
 
-Với một khối 10 MB (80 Mbit) qua link 100 Mbps, riêng $d_{trans}$ của cả khối đã là 0{,}8~s, lớn hơn rất nhiều so với $d_{prop}$ của một link WAN điển hình (vài chục ms). Vì vậy với khối lớn, băng thông là yếu tố chính; với khối nhỏ, RTT và số vòng khứ hồi mới là yếu tố chính. Câu hỏi Q2 và Q3 khai thác đúng ranh giới này.
+%=====================================================================
+\subsection{Phân tích bài toán và đặc tả yêu cầu hệ thống}
+\label{sec:2-2}
 
-Khi $N$ luồng cùng đi qua một link tốc độ $B$, hàng đợi tại đầu link bắt đầu đầy. Một hàng đợi chứa $Q$ gói kích thước $L$ thêm vào mỗi gói một độ trễ tối đa:
+\subsubsection{Phát biểu bài toán}
+Cho một mạng gồm $N$ Edge Node nối vào một Edge Switch. Từ switch có hai đường tới nút tổng hợp: một đường ngắn tới Edge Aggregator đặt ngay tại vùng biên, và một đường qua Edge Gateway (router kiêm firewall) rồi qua liên kết WAN có giới hạn băng thông và độ trễ tới Cloud Server.
+Mỗi vòng đồng bộ, nút tổng hợp gửi mô hình toàn cục kích thước $S$ tới từng Edge Node; mỗi Edge Node huấn luyện cục bộ rồi gửi lại bản cập nhật; nút tổng hợp lấy trung bình (FedAvg) để được mô hình toàn cục mới. Vòng kết thúc khi nút tổng hợp nhận đủ $N$ bản cập nhật.
+
+Hệ thống chạy ở hai chế độ, dùng chung giao thức và topo.
+
+Chế độ thứ nhất là FedAvg thật, dùng cho câu hỏi Q1 (quét băng thông), Q2 và phần overhead của Q3. Mô hình là mạng nơ-ron MLP 64--512--512--10 trong \texttt{model.py}, $S = 1\,204\,264$~byte (301\,066 tham số \texttt{float32}). Mỗi Edge Node huấn luyện một epoch SGD trên phần dữ liệu của mình; server tổng hợp FedAvg và đo độ chính xác trên tập kiểm tra sau mỗi vòng. Nhờ vậy nhóm đo được cả thời gian lẫn sự hội tụ.
+
+Chế độ thứ hai là đo mạng thuần, dùng cho các kịch bản K: phần số nút $N$ của Q1 và phần nén, vị trí nút tổng hợp của Q3. Payload là mảng byte 0 dài $S = 10$~MB, cỡ một checkpoint, và bước huấn luyện được thay bằng \texttt{sleep}. Mạng chỉ thấy kích thước khối dữ liệu. Vì thế chế độ này đủ để đo hành vi TCP với khối dữ liệu lớn, và cho phép đổi $S$ tùy ý, ví dụ nén còn $S/10$.
+
+\subsubsection{Mục tiêu nghiên cứu}
+Mục tiêu chung của đề tài là định lượng chi phí truyền thông của một vòng đồng bộ FL trên mạng Edge--Cloud và chỉ ra yếu tố mạng nào quyết định thời gian của vòng đó. Mục tiêu chung được chia thành các mục tiêu cụ thể sau:
+\begin{enumerate}
+    \item Dựng được một topo Edge--Cloud trên Mininet có Edge Switch, Edge Aggregator, Edge Gateway (router kiêm firewall) và Cloud Server, với băng thông, độ trễ, tỉ lệ mất gói và kích thước hàng đợi của chặng biên--cloud được cấu hình qua tham số.
+    \item Thiết kế và cài đặt giao thức ứng dụng FLSync trên TCP để chạy một vòng đồng bộ đầy đủ: phát mô hình toàn cục, huấn luyện cục bộ, thu bản cập nhật, tổng hợp FedAvg và báo kết thúc vòng.
+    \item Đo và giải thích sự thay đổi của $T_{round}$ khi băng thông chặng biên--cloud giảm từ 100 xuống 1~Mbps và khi số nút chia sẻ link nghẽn tăng (Q1); thời gian để mô hình đạt độ chính xác 90\% khi mất gói 0--5\% và độ trễ 5--100~ms (Q2); overhead của giao thức, và thời gian vòng giảm bao nhiêu khi nén bản cập nhật hoặc tổng hợp tại biên (Q3).
+    \item Phân tích luồng gói bắt được bằng tcpdump/Wireshark để giải thích các con số đo: bắt tay TCP, slow start, truyền lại, hàng đợi tại link nghẽn và lọc gói tại firewall.
+\end{enumerate}
+
+\subsubsection{Câu hỏi nghiên cứu và chỉ số đo}
+Đề tài trả lời ba câu hỏi, mỗi câu gắn với các chỉ số đo cụ thể đã định nghĩa ở Mục~\ref{sec:1-4} (Bảng~\ref{tab:rq}).
+
+\begin{table}[H]
+    \centering
+    \caption{Câu hỏi nghiên cứu và chỉ số đo}
+    \label{tab:rq}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=1.1\hsize}X >{\raggedright\arraybackslash\hsize=0.9\hsize}X}
+        \toprule
+        \textbf{Câu hỏi} & \textbf{Chỉ số đo} \\
+        \midrule
+        Q1. Giới hạn băng thông biên (1--100~Mbps) tác động thế nào đến thời gian một vòng FL? & $T_{round}$, $T_{down}$, $T_{up}$; thông lượng gộp; RTT khi có tải (bufferbloat); ảnh hưởng của số nút $N$ chia sẻ link nghẽn \\
+        \midrule
+        Q2. Tỉ lệ mất gói (0--5\%) và độ trễ chặng WAN ảnh hưởng thế nào đến sự hội tụ của mô hình? & Độ chính xác theo vòng; số vòng và thời gian để đạt 90\% (TTA); $T_{round}$ \\
+        \midrule
+        Q3. Giao thức FLSync/TCP tốn bao nhiêu overhead truyền thông, và các phương án triển khai biên (nén 1/10, tổng hợp tại Edge) hiệu quả đến đâu? & Hiệu suất byte (payload hữu ích / byte trên dây); tỉ lệ ACK, header, truyền lại; $T_{round}$ ở Edge và Cloud, có và không nén \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+Bảng~\ref{tab:qmap} cố định cách gán câu hỏi, biến độc lập, kịch bản và chế độ chạy; mọi mục sau đều theo bảng này. Chữ K trong tên kịch bản K1--K3 chỉ là mã kịch bản đo mạng thuần, số đi kèm không trùng với số của câu hỏi.
+
+\begin{table}[H]
+    \centering
+    \caption{Quy ước câu hỏi, biến độc lập, kịch bản và chế độ chạy}
+    \label{tab:qmap}
+    \small
+    \begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X l l}
+        \toprule
+        \textbf{Câu hỏi} & \textbf{Biến độc lập} & \textbf{Kịch bản} & \textbf{Chế độ} & \textbf{Kết quả} \\
+        \midrule
+        Q1 & Băng thông WAN $B$ & Q1\_bw$B$ & FedAvg thật & Bảng~\ref{tab:q1bw} \\
+        Q1 & Số nút $N$ & K1\_edge\_full & Đo mạng thuần & Bảng~\ref{tab:q1}, \ref{tab:q1thr} \\
+        \midrule
+        Q2 & Tỉ lệ mất gói $p$ & Q2\_loss$p$ & FedAvg thật & Bảng~\ref{tab:q2loss} \\
+        Q2 & Độ trễ $d_{WAN}$ với $p$ = 0 và 1\% & Q2\_d$d$\_l$p$ & FedAvg thật & Bảng~\ref{tab:q2delay} \\
+        \midrule
+        Q3 & Overhead (không thêm biến mới) & pcap của các kịch bản Q2 & FedAvg thật & Bảng~\ref{tab:q3ovh} \\
+        Q3 & Kích thước chiều lên $S_{up}$ & K1, K2\_edge\_comp; K3\_cloud\_full, K2\_cloud\_comp & Đo mạng thuần & Bảng~\ref{tab:q2meas} \\
+        Q3 & Vị trí nút tổng hợp, băng thông WAN & K1, K3\_cloud\_full, K3\_cloud20\_full & Đo mạng thuần & Bảng~\ref{tab:q3} \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsubsection{Đặc tả yêu cầu hệ thống}
+Từ mục tiêu trên, hệ thống thí nghiệm phải đáp ứng các yêu cầu chức năng (Bảng~\ref{tab:req-func}) và phi chức năng (Bảng~\ref{tab:req-nonfunc}).
+
+\begin{table}[H]
+    \centering
+    \caption{Yêu cầu chức năng}
+    \label{tab:req-func}
+    \begin{tabularx}{\textwidth}{c >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{4.6cm}}
+        \toprule
+        \textbf{Mã} & \textbf{Yêu cầu} & \textbf{Thành phần đáp ứng} \\
+        \midrule
+        F1 & Tạo topo Edge--Cloud với số Edge Node, băng thông, độ trễ, mất gói chặng WAN chọn qua tham số & \texttt{topo.py} \\
+        F2 & Edge Gateway định tuyến giữa hai mạng và chỉ cho phép lưu lượng FLSync đi qua & \texttt{topo.py} (iptables) \\
+        F3 & Truyền thông điệp có khung rõ ràng (Header, Type, Length, Payload), nhận diện được trên Wireshark & \texttt{flproto.py} \\
+        F4 & Server chờ đủ $N$ client, chạy nhiều vòng, tổng hợp FedAvg, ghi $T_{down}$, $T_{up}$, $T_{round}$ và độ chính xác mỗi vòng & \texttt{fl\_server.py} \\
+        F5 & Client nhận trọng số toàn cục, huấn luyện cục bộ, đóng gói và gửi trọng số & \texttt{fl\_client.py} \\
+        F6 & Mô hình mạng nơ-ron phân loại: hàm mất mát, SGD, tuần tự hoá trọng số & \texttt{model.py} \\
+        F7 & Chạy tự động batch kịch bản với các mức băng thông, độ trễ, mất gói, xuất log CSV, ping, pcap & \texttt{run\_experiments.py} \\
+        F8 & Tổng hợp log thành bảng trung bình, độ lệch chuẩn, thông lượng, TTA; đo overhead từ pcap & \texttt{summarize.py}, \texttt{pcap\_overhead.py} \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{Yêu cầu phi chức năng}
+    \label{tab:req-nonfunc}
+    \begin{tabularx}{\textwidth}{c >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+        \toprule
+        \textbf{Mã} & \textbf{Yêu cầu} & \textbf{Cách đáp ứng} \\
+        \midrule
+        N1 & Lặp lại được: cùng tham số cho cùng kết quả trong phạm vi độ lệch chuẩn & \texttt{run\_experiments.py} dựng topo mới cho mỗi lần đo; seed cố định \\
+        N2 & Đo chính xác: mốc thời gian lấy khi dữ liệu thực sự tới đích (hàm \texttt{sendall()} trả về sớm hơn lúc đó) & ACK tầng ứng dụng của FLSync; mọi mốc lấy bằng \texttt{perf\_counter} trên server \\
+        N3 & Quan sát được: mỗi byte trên đường truyền giải thích được bằng header các tầng & Bắt gói bằng tcpdump, đếm byte bằng \texttt{pcap\_overhead.py} \\
+        N4 & Môi trường đủ tài nguyên: iperf giữa hai host đạt gần băng thông cấu hình & Chạy ping, iperf bằng \texttt{tools/sanity.py} trước khi đo; yêu cầu khoảng 95 Mbps trên link 100 Mbps \\
+        N5 & Nhẹ: chạy được trên một máy ảo Ubuntu 2 vCPU, 4 GB RAM & Host Mininet là network namespace, dùng chung nhân Linux \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsubsection{Kiến trúc tổng thể và đầu vào, đầu ra}
+Hình~\ref{fig:arch} cho thấy quan hệ giữa các thành phần: \texttt{run\_experiments.py} dựng topo bằng \texttt{topo.py}, khởi chạy server và client FLSync trên các host Mininet, thu log và file pcap; server và client dùng \texttt{model.py} để huấn luyện và tổng hợp trọng số thật; \texttt{summarize.py} và \texttt{pcap\_overhead.py} tạo bảng số liệu dùng cho phần đánh giá.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        box/.style={draw, rounded corners, minimum height=0.9cm, text width=4.2cm, align=center, font=\small},
+        arr/.style={-{Stealth[length=2.2mm]}, thick}
+    ]
+        \node[box, fill=gray!15] (run) at (0,0) {\texttt{run\_experiments.py}\\điều phối kịch bản};
+        \node[box, fill=blue!8] (topo) at (-4.2,-2.0) {\texttt{topo.py}\\Mininet, OVS, tc, iptables};
+        \node[box, fill=orange!15] (fl) at (0,-2.0) {\texttt{fl\_server.py}\\\texttt{fl\_client.py}\\(\texttt{flproto.py}, \texttt{model.py})};
+        \node[box, fill=green!10] (cap) at (4.2,-2.0) {ping, tcpdump};
+        \node[box, fill=yellow!15] (res) at (0,-4.2) {\texttt{results/}\\log CSV, ping, pcap};
+        \node[box, fill=gray!15, text width=3.6cm] (sum) at (-2.2,-6.2) {\texttt{summarize.py}};
+        \node[box, fill=gray!15, text width=3.6cm] (pov) at (2.2,-6.2) {\texttt{pcap\_overhead.py}};
+        \node[box, fill=red!10, text width=7.6cm] (out) at (0,-8.0) {\texttt{data/*.csv} $\rightarrow$ bảng, biểu đồ, phân tích Wireshark};
+        \draw[arr] (run) -- (topo);
+        \draw[arr] (run) -- (fl);
+        \draw[arr] (run) -- (cap);
+        \draw[arr] (fl) -- (res);
+        \draw[arr] (cap) |- (res);
+        \draw[arr] (res) -- (sum);
+        \draw[arr] (res) -- (pov);
+        \draw[arr] (pov) -- (out);
+        \draw[arr] (sum) -- (out);
+    \end{tikzpicture}
+    \caption{Kiến trúc tổng thể của hệ thống thí nghiệm}
+    \label{fig:arch}
+\end{figure}
+
+Đầu vào là các tham số mạng và tham số tải mà nhóm thay đổi khi chạy thí nghiệm (Bảng~\ref{tab:input}). Giá trị trong bảng lấy theo \texttt{topo.py} và \texttt{run\_experiments.py}.
+
+\begin{table}[H]
+    \centering
+    \caption{Đầu vào của đề tài}
+    \label{tab:input}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\hsize=0.8\hsize}X >{\raggedright\arraybackslash\hsize=1.2\hsize}X}
+        \toprule
+        \textbf{Tham số đầu vào} & \textbf{Giá trị} \\
+        \midrule
+        Số Edge Node $N$ & 4 (Q1, Q2); 2, 3, 4, 5, 6 (kịch bản K) \\
+        \midrule
+        Link trong vùng biên (Edge Node--Edge Switch, Edge Switch--Edge Aggregator) & 100~Mbps, độ trễ 1~ms, hàng đợi 200 gói \\
+        \midrule
+        Băng thông chặng WAN (Edge Gateway--switch phía cloud) & 1, 2, 5, 10, 20, 50, 100~Mbps (Q1); 100~Mbps (Q2) \\
+        \midrule
+        Độ trễ một chiều chặng WAN & 20~ms; 5, 50, 100~ms (Q2) \\
+        \midrule
+        Tỉ lệ mất gói mỗi chiều chặng WAN & 0\%; 0{,}5, 1, 2, 3, 5\% (Q2) \\
+        \midrule
+        Vị trí nút tổng hợp & Cloud Server (10.0.2.200) cho Q1, Q2; Edge Aggregator (10.0.1.100) hoặc Cloud Server cho kịch bản K \\
+        \midrule
+        Mô hình và kích thước & MLP 64--512--512--10, 1{,}2~MB (Q1, Q2); khối giả 10~MB chiều xuống, 10~MB hoặc 1~MB (nén 1/10) chiều lên (kịch bản K) \\
+        \midrule
+        Thời gian huấn luyện cục bộ & SGD thật (khoảng 0{,}1--0{,}3~s) đệm cho đủ 1~s; hoặc \texttt{sleep} 1~s (kịch bản K) \\
+        \midrule
+        Số vòng mỗi lần chạy & 6 (Q1); 20 (Q2); 10 (kịch bản K); bỏ vòng 1 khi tính trung bình thời gian \\
+        \midrule
+        Luật firewall tại Edge Gateway & Mặc định chặn; chỉ cho Edge Node mở kết nối TCP cổng 5000 tới Cloud Server, cho phép ICMP echo \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+Đầu ra đầu tiên là mã nguồn trong thư mục \texttt{code/}: \texttt{topo.py} dựng topo, \texttt{flproto.py} cài giao thức FLSync, \texttt{fl\_server.py} và \texttt{fl\_client.py} chạy FedAvg, \texttt{model.py} chứa mạng nơ-ron, \texttt{run\_experiments.py} chạy kịch bản đo, còn \texttt{summarize.py} và \texttt{pcap\_overhead.py} xử lý số liệu. Mỗi lần chạy sinh ra số liệu thô gồm log từng vòng ($T_{down}$, $T_{up}$, $T_{round}$, độ chính xác), log ping đo RTT khi có tải và file pcap ở hai phía chặng WAN. Hai script xử lý gom số liệu thô thành các file \texttt{q1\_bw.csv}, \texttt{q2\_loss.csv}, \texttt{q2\_delay.csv}, \texttt{q2\_curve\_*.csv}, \texttt{q3\_overhead.csv} và \texttt{measured\_*.csv} trong thư mục \texttt{data/}.
+
+Từ các file này, Mục~\ref{sec:2-7} vẽ biểu đồ thời gian vòng theo băng thông, độ trễ, mất gói và số Edge Node, vẽ đường hội tụ theo thời gian, và phân tích luồng gói trên Wireshark. Kết quả cuối là câu trả lời định lượng cho Q1--Q3. Kèm theo đó là khuyến nghị về băng thông tối thiểu, vị trí đặt nút tổng hợp và việc nén bản cập nhật.
+
+\subsubsection{Phạm vi và giới hạn}
+Mạng được giả lập bằng Mininet \cite{lantz2010mininet} trên một máy ảo Linux, với băng thông và độ trễ do \texttt{tc} (HTB và netem) áp đặt. Số đo vì vậy là hành vi của TCP Linux trong môi trường có kiểm soát. Muốn biết số liệu trên mạng thật thì phải đo lại trên mạng thật. Mất gói do netem tạo ra là mất gói độc lập (Bernoulli) trên cả hai chiều chặng WAN; mất gói theo cụm của mạng vô tuyến không được mô phỏng.
+
+Dữ liệu huấn luyện là bài toán phân loại 10 lớp sinh tổng hợp (6\,000 mẫu huấn luyện, 2\,000 mẫu kiểm tra), chia đều và độc lập (IID) cho các Edge Node. Dữ liệu này chỉ dùng để có một mô hình thật mà đo hội tụ. Thời gian huấn luyện cục bộ được đệm cho đủ 1~s ở mọi vòng, để mọi chênh lệch thời gian đều đến từ mạng; thời gian tổng hợp FedAvg (vài ms) vẫn được tính vào $T_{round}$. Giao thức ứng dụng do nhóm tự định nghĩa trên socket TCP. gRPC và MQTT để lại cho hướng phát triển.
+
+Đề tài thuộc Hướng 2 (Networking for AI). Đối tượng nghiên cứu là hạ tầng mạng phục vụ một hệ thống AI phân tán, ở đây là lưu lượng đồng bộ tham số của FL. Câu hỏi Q3 đo xem việc nén bản cập nhật, cách mà Deep Gradient Compression \cite{lin2018dgc} dùng trong học sâu phân tán, rút ngắn thời gian truyền trên mạng được bao nhiêu.
+
+%=====================================================================
+\subsection{Thiết kế kiến trúc topology mạng Edge--Cloud}
+\label{sec:2-3}
+
+\subsubsection{Sơ đồ topo và phân vùng mạng}
+Hình~\ref{fig:topo} là topo dùng cho mọi kịch bản. Sáu Edge Node \texttt{h1}--\texttt{h6} nối vào Edge Switch \texttt{s1} trong mạng biên 10.0.1.0/24. Edge Aggregator \texttt{agg} nằm cùng mạng này. Để ra khỏi vùng biên, gói phải đi qua Edge Gateway \texttt{r1}: một host Linux bật chuyển tiếp IP, vừa là router giữa hai mạng, vừa là firewall (iptables). Phía bên kia liên kết WAN là mạng cloud 10.0.2.0/24 gồm switch \texttt{s2} và Cloud Server \texttt{cloud}. Số Edge Node tham gia một lần đo ($N$ = 2..6) được chọn bằng tham số dòng lệnh; các host không tham gia vẫn có mặt nhưng không phát lưu lượng.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        host/.style={draw, rounded corners, minimum width=1.1cm, minimum height=0.7cm, font=\small, fill=blue!8},
+        sw/.style={draw, minimum width=1.1cm, minimum height=0.8cm, font=\small, fill=gray!15},
+        rt/.style={draw, circle, minimum size=1.1cm, font=\small, fill=red!12},
+        srv/.style={draw, rounded corners, minimum width=1.9cm, minimum height=0.9cm, font=\small, fill=orange!15, align=center},
+    ]
+        \foreach \i in {1,...,6} {
+            \node[host] (h\i) at (0, {3.25 - (\i-1)*1.3}) {h\i};
+        }
+        \node[sw] (s1) at (3.2, 0) {s1};
+        \foreach \i in {1,...,6} {
+            \draw (h\i.east) -- (s1.west);
+        }
+        \node[font=\scriptsize, align=center] at (1.5, -4.2) {100 Mbps, 1 ms\\(mỗi link truy nhập)\\10.0.1.1--10.0.1.6};
+        \node[srv] (agg) at (6.4, 2.4) {Edge Aggregator\\\texttt{agg} 10.0.1.100};
+        \node[rt] (r1) at (6.0, -1.6) {r1};
+        \node[font=\scriptsize, align=center, below=1pt of r1] {Edge Gateway\\router + firewall\\.1.254 \;|\; .2.254};
+        \node[sw] (s2) at (9.9, -1.6) {s2};
+        \node[srv] (cloud) at (12.8, -1.6) {Cloud Server\\\texttt{cloud} 10.0.2.200};
+        \draw[very thick] (s1) -- node[font=\scriptsize, sloped, above, pos=0.45] {100 Mbps, 1 ms} (agg);
+        \draw (s1) -- node[font=\scriptsize, sloped, below, pos=0.5] {100 Mbps} (r1);
+        \draw[very thick, dashed] (r1) -- node[font=\scriptsize, above] {WAN 1--100 Mbps} node[font=\scriptsize, below, align=center] {5--100 ms\\mất gói 0--5\%} (s2);
+        \draw (s2) -- node[font=\scriptsize, above] {1 ms} (cloud);
+        \begin{scope}[on background layer]
+            \node[draw, dotted, rounded corners, fit=(h1)(h6)(s1)(agg), inner sep=8pt, label={[font=\small]above:Mạng biên 10.0.1.0/24}] {};
+            \node[draw, dotted, rounded corners, fit=(s2)(cloud), inner sep=6pt, label={[font=\small]above:Mạng cloud 10.0.2.0/24}] {};
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Topo Edge--Cloud dùng trong thí nghiệm}
+    \label{fig:topo}
+\end{figure}
+
+Vị trí và vai trò của từng thiết bị được tóm tắt trong Bảng~\ref{tab:devices}.
+
+\begin{table}[H]
+    \centering
+    \caption{Thiết bị trong topo}
+    \label{tab:devices}
+    \begin{tabularx}{\textwidth}{l l >{\raggedright\arraybackslash}p{2.4cm} >{\raggedright\arraybackslash}X}
+        \toprule
+        \textbf{Thiết bị} & \textbf{Tên} & \textbf{Địa chỉ IP} & \textbf{Chức năng} \\
+        \midrule
+        Edge Node & \texttt{h1}--\texttt{h6} & 10.0.1.1--10.0.1.6 & Client FLSync, gửi bản cập nhật \\
+        Edge Switch & \texttt{s1} & -- & Open vSwitch, chuyển mạch L2 trong mạng biên \\
+        Edge Aggregator & \texttt{agg} & 10.0.1.100 & Server FLSync khi tổng hợp tại biên \\
+        Router / Gateway & \texttt{r1} & 10.0.1.254, 10.0.2.254 & Định tuyến giữa mạng biên và mạng cloud; cổng mặc định của các host \\
+        Firewall & \texttt{r1} (iptables) & -- & Chặn mặc định; chỉ cho TCP/5000 từ 10.0.1.0/24 tới \texttt{cloud}, ICMP echo, và gói thuộc kết nối đã mở \\
+        Cloud switch & \texttt{s2} & -- & Chuyển mạch L2 trong mạng cloud \\
+        Cloud Server & \texttt{cloud} & 10.0.2.200 & Server FLSync khi tổng hợp trên cloud \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsubsection{Tham số băng thông, độ trễ và hàng đợi}
+Các tham số đường truyền nằm trong Bảng~\ref{tab:params}; kích thước mô hình, số Edge Node và số vòng đã nêu ở Bảng~\ref{tab:input}. Chặng WAN \texttt{r1}--\texttt{s2} là chặng biên--cloud và là nơi đặt mọi điều kiện mạng cần khảo sát: \texttt{topo.py} nhận ba tham số \texttt{bw\_wan}, \texttt{wan\_delay} và \texttt{loss}, chuyển cho \texttt{TCLink} để Mininet dựng hàng đợi HTB (giới hạn băng thông) và netem (độ trễ, mất gói) trên cả hai đầu link. Các link trong vùng biên giữ 100~Mbps, 1~ms, không mất gói ngẫu nhiên. Giới hạn 200 gói là giới hạn của netem và tính cả gói đang bị giữ để tạo trễ, nên ở $d_{WAN} \ge 50$~ms nó không còn là kích thước hàng đợi thuần túy (xem Bảng~\ref{tab:qverify}). Ở mức mặc định, băng thông WAN bằng băng thông nhánh biên (100 Mbps) để chênh lệch giữa Edge và Cloud chỉ còn do RTT; các kịch bản Q1, Q2 lần lượt hạ băng thông, thêm mất gói và tăng độ trễ.
+
+\begin{table}[H]
+    \centering
+    \caption{Tham số đường truyền của topo}
+    \label{tab:params}
+    \begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}X}
+        \toprule
+        \textbf{Tham số} & \textbf{Giá trị} \\
+        \midrule
+        Link truy nhập h$_i$--s1 & 100 Mbps, 1 ms, hàng đợi 200 gói \\
+        Link s1--agg (nhánh biên) & 100 Mbps, 1 ms \\
+        Link s1--r1 & 100 Mbps, không thêm độ trễ \\
+        Link r1--s2 (WAN) & 1--100 Mbps; 5, 20, 50, 100 ms; mất gói 0--5\% mỗi chiều; hàng đợi 200 gói \\
+        Link s2--cloud & 100 Mbps, 1 ms \\
+        RTT cơ sở tới \texttt{agg} & $2 \times (1+1) = 4$ ms \\
+        RTT cơ sở tới \texttt{cloud} & $2 (1+0+d_{WAN}+1)$: 14, 44, 104, 204 ms khi $d_{WAN}$ = 5, 20, 50, 100 ms \\
+        Switch & Open vSwitch ở chế độ bridge L2 (\texttt{OVSBridge}) \\
+        TCP & Linux mặc định: CUBIC, IW = 10, \nolinkurl{tcp_slow_start_after_idle = 1} \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+\subsubsection{Edge Gateway: định tuyến và firewall}
+Khi tổng hợp tại biên, \texttt{h1} (10.0.1.1) và \texttt{agg} (10.0.1.100) cùng mạng 10.0.1.0/24, nên gói đi thẳng qua \texttt{s1} mà không qua router và TTL giữ nguyên 64.
+
+Khi tổng hợp trên cloud, đích 10.0.2.200 nằm ngoài mạng của \texttt{h1}, nên \texttt{h1} gửi gói tới cổng mặc định 10.0.1.254 (giao diện \texttt{r1-eth0}). Router \texttt{r1} tra bảng định tuyến, thấy 10.0.2.0/24 nối trực tiếp trên \texttt{r1-eth1}, giảm TTL xuống 63, tính lại checksum header IP rồi chuyển gói ra phía WAN. Địa chỉ IP nguồn và đích không đổi vì \texttt{r1} không làm NAT.
+
+Trước khi chuyển, gói phải qua chuỗi FORWARD của iptables trên \texttt{r1}. Chính sách mặc định là DROP. Gói SYN đầu tiên của FLSync khớp luật ``TCP từ 10.0.1.0/24 tới 10.0.2.200 cổng 5000, trạng thái NEW''; module conntrack ghi nhận kết nối, và mọi gói sau đó (cả chiều về) được chấp nhận theo luật ESTABLISHED. Kết nối khác, ví dụ \texttt{h1} thử SSH (TCP/22) tới \texttt{cloud} hoặc \texttt{cloud} chủ động mở kết nối vào mạng biên, bị chặn. Có thể kiểm tra bằng \texttt{h1 nc -zv -w 2 10.0.2.200 22} (phải hết thời gian chờ) và \texttt{r1 iptables -L FORWARD -v} (bộ đếm gói của từng luật).
+
+Trước khi đo, cần kiểm tra môi trường: \texttt{h1 ping -c 10 agg} phải cho RTT khoảng 4~ms, \texttt{h1 ping -c 10 cloud} khoảng 44~ms, và \texttt{iperf} giữa \texttt{h1} và \texttt{agg} phải đạt gần 95 Mbps. Nếu iperf thấp hơn nhiều, máy ảo thiếu CPU và kết quả đo sẽ không tin cậy được. Kết quả kiểm tra nằm ở Mục~\ref{sec:2-7}.
+
+%=====================================================================
+\subsection{Thiết kế giao thức ứng dụng tùy chỉnh (FLSync Protocol)}
+\label{sec:2-4}
+FLSync là giao thức tầng ứng dụng do nhóm viết, khoảng 50 dòng Python (\texttt{code/flproto.py}).
+
+\subsubsection{Lý do tự định nghĩa giao thức}
+gRPC hay MQTT đều chạy trên TCP và thêm các lớp đóng khung, nén header, quản lý luồng (HTTP/2) hoặc broker trung gian (MQTT). Những lớp này làm khó việc tách riêng hành vi của TCP trên bản bắt gói. Nhóm chọn một giao thức tối giản trên socket TCP để mỗi byte trên đường truyền đều giải thích được.
+
+\subsubsection{Cấu trúc thông điệp và tuần tự hoá}
+Mỗi thông điệp gồm header cố định 20 byte (Bảng~\ref{tab:hdr}) và theo sau là phần payload có độ dài khai báo trong trường \texttt{length}. Ở chế độ FedAvg thật, payload của \texttt{GLOBAL} và \texttt{UPDATE} là toàn bộ trọng số mạng nơ-ron: sáu mảng (ba ma trận trọng số, ba vector bias) được nối liên tiếp theo thứ tự lớp, mỗi phần tử là số thực \texttt{float32} big-endian (\texttt{numpy} kiểu \texttt{>f4}). Bên nhận biết trước kiến trúc 64--512--512--10 nên cắt lại đúng hình dạng từng mảng mà không cần gửi kèm siêu dữ liệu; tổng cộng $4 \times 301\,066 = 1\,204\,264$ byte. Ở chế độ đo mạng thuần, payload là các byte 0 với độ dài tuỳ chọn, vì nội dung không ảnh hưởng tới mạng. Header được tuần tự hoá bằng \texttt{struct.Struct("!4sBBIHQ")}: ký hiệu \texttt{!} chọn thứ tự byte mạng (big-endian), các ký hiệu còn lại lần lượt là chuỗi 4 byte, hai số 1 byte, số 4 byte, số 2 byte và số 8 byte, tổng cộng 20 byte không có byte đệm.
+
+\begin{table}[H]
+    \centering
+    \caption{Header của thông điệp FLSync (big-endian)}
+    \label{tab:hdr}
+    \begin{tabular}{l c l}
+        \toprule
+        \textbf{Trường} & \textbf{Byte} & \textbf{Ý nghĩa} \\
+        \midrule
+        \texttt{magic} & 4 & Chuỗi \texttt{FLSY}, nhận diện giao thức khi xem trên Wireshark \\
+        \texttt{version} & 1 & Phiên bản, hiện là 1 \\
+        \texttt{type} & 1 & 1 HELLO, 2 GLOBAL, 3 UPDATE, 4 ACK, 5 BYE \\
+        \texttt{round} & 4 & Số thứ tự vòng \\
+        \texttt{node} & 2 & Định danh Edge Node, 0 là server \\
+        \texttt{length} & 8 & Độ dài payload (byte) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Vì TCP là luồng byte không có ranh giới thông điệp, bên nhận đọc đúng 20 byte header trước, kiểm tra \texttt{magic} và \texttt{version}, sau đó đọc đúng \texttt{length} byte. Trường \texttt{length} dài 8 byte nên một thông điệp có thể mang khối dữ liệu lớn tuỳ ý.
+
+\subsubsection{Trình tự một vòng đồng bộ}
+Mỗi Edge Node mở một kết nối TCP duy nhất tới nút tổng hợp và giữ nó qua mọi vòng. Trình tự thông điệp được vẽ trên Hình~\ref{fig:seq}:
+\begin{enumerate}
+    \item Khởi động: client kết nối, gửi \texttt{HELLO}. Server chờ đủ $N$ client.
+    \item Server gửi \texttt{GLOBAL} ($S$ byte) song song cho cả $N$ client, mỗi client một luồng.
+    \item Client nhận đủ $S$ byte thì trả về \texttt{ACK} rỗng. Server dùng mốc này để đo $T_{down}$, vì hàm \texttt{sendall()} trả về ngay khi dữ liệu vào bộ đệm gửi của hệ điều hành, trước khi dữ liệu thực sự tới nơi.
+    \item Client huấn luyện cục bộ (SGD một epoch, đệm cho đủ 1~s; hoặc ngủ 1~s ở chế độ đo mạng thuần), rồi gửi \texttt{UPDATE} chứa trọng số mới ($S$ byte, hoặc $S/10$ khi nén).
+    \item Server nhận đủ $N$ bản \texttt{UPDATE}, tổng hợp FedAvg, gửi \texttt{ACK} kết thúc vòng. $T_{round}$ tính từ lúc bắt đầu gửi \texttt{GLOBAL} tới lúc này. Sau đó server đánh giá độ chính xác của mô hình mới trên tập kiểm tra (không tính vào $T_{round}$).
+    \item Sau vòng cuối, server gửi \texttt{BYE} và đóng kết nối (FIN).
+\end{enumerate}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        msg/.style={-{Stealth[length=2.5mm]}, thick},
+        note/.style={font=\scriptsize, fill=white, inner sep=1pt}
+    ]
+        \node[font=\small\bfseries] at (0, 0.4) {Edge Node $h_i$};
+        \node[font=\small\bfseries] at (8, 0.4) {Aggregator};
+        \draw[thick] (0,0) -- (0,-11.2);
+        \draw[thick] (8,0) -- (8,-11.2);
+        % Bắt tay
+        \draw[msg] (0,-0.4) -- node[note, above, sloped] {SYN} (8,-0.9);
+        \draw[msg] (8,-1.0) -- node[note, above, sloped] {SYN-ACK} (0,-1.5);
+        \draw[msg] (0,-1.6) -- node[note, above, sloped] {ACK + HELLO (20 B)} (8,-2.1);
+        \node[font=\scriptsize, anchor=west, align=left] at (8.2,-1.2) {chỉ ở lần\\kết nối đầu};
+        % GLOBAL
+        \fill[blue!12] (8,-2.6) -- (8,-4.0) -- (0,-4.6) -- (0,-3.2) -- cycle;
+        \draw[msg] (8,-2.6) -- (0,-3.2);
+        \draw[msg] (8,-4.0) -- (0,-4.6);
+        \node[note, fill=blue!12] at (4,-3.6) {GLOBAL: header 20 B + $S$ byte (slow start rồi chia $B/N$)};
+        \draw[decorate, decoration={brace, amplitude=4pt}] (8.2,-2.6) -- (8.2,-4.6) node[midway, right=4pt, font=\scriptsize] {$T_{down}$};
+        \draw[msg] (0,-4.8) -- node[note, above, sloped] {ACK (FLSync, 20 B)} (8,-5.3);
+        % Train
+        \draw[fill=gray!20] (-0.25,-5.0) rectangle (0.25,-6.5);
+        \node[font=\scriptsize, anchor=east, align=right] at (-0.35,-5.75) {train\\1 s};
+        % UPDATE
+        \fill[orange!15] (0,-6.6) -- (0,-8.0) -- (8,-8.6) -- (8,-7.2) -- cycle;
+        \draw[msg] (0,-6.6) -- (8,-7.2);
+        \draw[msg] (0,-8.0) -- (8,-8.6);
+        \node[note, fill=orange!15] at (4,-7.6) {UPDATE: 20 B + $S$ (hoặc $S/10$) byte};
+        \draw[decorate, decoration={brace, amplitude=4pt}] (8.2,-7.2) -- (8.2,-8.6) node[midway, right=4pt, font=\scriptsize] {$T_{up}$};
+        \node[draw, fill=green!10, font=\scriptsize] at (8,-9.1) {FedAvg};
+        \draw[msg] (8,-9.6) -- node[note, above, sloped] {ACK (kết thúc vòng $t$)} (0,-10.1);
+        \draw[decorate, decoration={brace, amplitude=6pt, mirror}] (9.4,-2.6) -- (9.4,-9.6) node[midway, left=6pt, font=\scriptsize] {$T_{round}$};
+        \node[font=\scriptsize] at (4,-10.8) {lặp lại cho vòng $t+1$ trên cùng kết nối TCP};
+    \end{tikzpicture}
+    \caption{Trình tự thông điệp trong một vòng đồng bộ FLSync}
+    \label{fig:seq}
+\end{figure}
+
+\subsubsection{Luồng gói tin qua các tầng}
+Hình~\ref{fig:encap} minh hoạ cách một thông điệp \texttt{UPDATE} 10 MB được đóng gói khi đi xuống các tầng tại Edge Node.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        box/.style={draw, minimum height=0.65cm, font=\scriptsize, align=center},
+        lay/.style={font=\small\bfseries, anchor=east}
+    ]
+        \node[lay] at (-0.3, 0) {Application};
+        \node[box, fill=yellow!20, minimum width=1.4cm, anchor=west] (a1) at (2.8,0) {FLSync\\20 B};
+        \node[box, fill=yellow!8, minimum width=7.0cm, anchor=west] at (a1.east) {payload 10\,000\,000 B (luồng byte, chưa chia gói)};
+
+        \node[lay] at (-0.3, -1.3) {Transport};
+        \node[box, fill=red!15, minimum width=1.6cm, anchor=west] (t1) at (2.8,-1.3) {TCP\\20+12 B};
+        \node[box, fill=yellow!8, minimum width=3.0cm, anchor=west] (t2) at (t1.east) {đoạn dữ liệu\\1448 B};
+        \node[font=\scriptsize, anchor=west] at (t2.east) {\;$\times$ 6907 đoạn};
+
+        \node[lay] at (-0.3, -2.6) {Network};
+        \node[box, fill=green!15, minimum width=1.4cm, anchor=west] (n1) at (1.4,-2.6) {IPv4\\20 B};
+        \node[box, fill=red!15, minimum width=1.6cm, anchor=west] (n2) at (n1.east) {TCP\\32 B};
+        \node[box, fill=yellow!8, minimum width=3.0cm, anchor=west] (n3) at (n2.east) {1448 B};
+        \node[font=\scriptsize, anchor=west] at (n3.east) {\;= 1500 B (MTU)};
+
+        \node[lay] at (-0.3, -3.9) {Link};
+        \node[box, fill=blue!15, minimum width=1.4cm, anchor=west] (l0) at (0,-3.9) {Ethernet\\14 B};
+        \node[box, fill=green!15, minimum width=1.4cm, anchor=west] (l1) at (l0.east) {IPv4\\20 B};
+        \node[box, fill=red!15, minimum width=1.6cm, anchor=west] (l2) at (l1.east) {TCP\\32 B};
+        \node[box, fill=yellow!8, minimum width=3.0cm, anchor=west] (l3) at (l2.east) {1448 B};
+        \node[font=\scriptsize, anchor=west] at (l3.east) {\;= 1514 B / khung};
+    \end{tikzpicture}
+    \caption{Đóng gói một thông điệp UPDATE qua các tầng}
+    \label{fig:encap}
+\end{figure}
+
+\textbf{Tầng ứng dụng.} FLSync coi mỗi bản mô hình là một thông điệp dài. Ứng dụng gọi \texttt{sendall()} với từng khối 64~KB; hệ điều hành chép dữ liệu vào bộ đệm gửi của socket và trả quyền ngay khi bộ đệm còn chỗ. Ứng dụng không biết dữ liệu đã thực sự tới đích hay chưa, vì vậy giao thức cần thông điệp \texttt{ACK} ở tầng ứng dụng để đo $T_{down}$ chính xác. Tuỳ chọn \texttt{TCP\_NODELAY} được bật để các thông điệp nhỏ (HELLO, ACK) không bị thuật toán Nagle giữ lại.
+
+\textbf{Tầng giao vận.} Bắt tay chỉ xảy ra một lần, lúc client kết nối. Gói SYN mang MSS = 1460, Window Scale, SACK Permitted và Timestamps; bắt tay tốn 4~ms với Edge và 44~ms với Cloud. Sau đó TCP chia khối 10 MB thành $\lceil 10^7 / 1448 \rceil = 6907$ đoạn, mỗi đoạn có header 32 byte (20 byte cố định cộng 12 byte Timestamps).
+
+Bên gửi giữ tối đa $\min(cwnd, rwnd)$ byte chưa được xác nhận. Linux tự nới bộ đệm nhận tới 6~MB (giá trị \texttt{tcp\_rmem} mặc định), lớn hơn nhiều so với BDP 550~KB của nhánh WAN. Vì thế $rwnd$ không giới hạn thông lượng trong các kịch bản này; $cwnd$ mới là giới hạn.
+
+Mỗi vòng bắt đầu sau ít nhất 1~s nghỉ. Khoảng nghỉ này dài hơn RTO tối thiểu 200~ms của Linux, nên $cwnd$ bị đặt lại về IW. Theo~\eqref{eq:kstar}, mỗi vòng mất khoảng 2 RTT (8~ms) ở Edge và 6 RTT (264~ms) ở Cloud trước khi lấp đầy link. Theo chiều ngược lại, bên nhận dùng delayed ACK (khoảng 2 đoạn một ACK), tức khoảng 3450 gói ACK 66 byte cho mỗi khối 10 MB.
+
+Khi $N$ kết nối cùng đi qua link \texttt{s1}--\texttt{agg}, hàng đợi 200 gói sẽ có lúc tràn. Gói bị mất làm CUBIC giảm $cwnd$ của luồng đó, và sau vài lần như vậy các luồng về gần mức $B/N$.
+
+\textbf{Tầng mạng.} Đường đi ở tầng mạng của hai kịch bản đã trình bày ở Mục~\ref{sec:2-3}. Cờ DF (cấm phân mảnh) được bật do Linux dùng Path MTU Discovery; mọi link có MTU 1500 nên không có phân mảnh. Trong mạng thật, chặng WAN sẽ đi qua nhiều router; ở đây link \texttt{r1}--\texttt{s2} với 20~ms đại diện cho toàn bộ chặng đó.
+
+\textbf{Tầng liên kết.} Trước gói đầu tiên, Edge Node gửi ARP request quảng bá. Với \texttt{agg}, nó hỏi trực tiếp MAC của 10.0.1.100. Với \texttt{cloud}, nó hỏi MAC của cổng mặc định 10.0.1.254, rồi \texttt{r1} tự hỏi MAC của 10.0.2.200 trên mạng cloud. Vì vậy một khung từ \texttt{h1} tới \texttt{cloud} đổi địa chỉ MAC tại router: trên mạng biên, MAC nguồn là của \texttt{h1} và MAC đích là của \texttt{r1-eth0}; trên mạng cloud, MAC nguồn là của \texttt{r1-eth1} và MAC đích là của \texttt{cloud}. Open vSwitch ở chế độ bridge học địa chỉ MAC theo cổng vào và chuyển tiếp khung Ethernet 1514 byte (chưa tính preamble và FCS). Tại cổng ra của link nghẽn, HTB chỉ cho phép 100 Mbit/s đi qua; khung vượt quá nằm chờ trong hàng đợi netem, đây chính là nơi sinh ra $d_{queue}$.
+
+\subsubsection{Chi phí header}
+Mỗi đoạn mang 1448 byte dữ liệu trong một khung 1514 byte, hiệu suất:
 \begin{equation}
-    d_{queue}^{max} = \frac{Q \cdot L}{B}
-    \label{eq:dqueue}
+    \eta = \frac{1448}{1514} \approx 0{,}956
+    \label{eq:eta}
 \end{equation}
-Với $Q = 200$ gói, $L = 1514$ byte và $B = 100$ Mbps, $d_{queue}^{max} \approx 24$~ms. Hiện tượng hàng đợi lớn làm RTT tăng vọt khi có tải được gọi là bufferbloat.
+Một khối 10 MB vì thế chiếm khoảng $6907 \times 1514 \approx 10{,}46$~MB trên đường truyền (thêm 4{,}6\%), cộng khoảng 0{,}23~MB ACK theo chiều ngược lại. Thông lượng ứng dụng tối đa trên link 100 Mbps là khoảng 95{,}6 Mbps. Header FLSync chỉ là 20 byte mỗi thông điệp, tức $1{,}7 \times 10^{-5}$ so với mô hình 1{,}2~MB; overhead thực tế đo từ pcap, gồm cả ACK và truyền lại, được trình bày ở câu hỏi Q3 (Mục~\ref{sec:2-7}).
 
-\subsection{Giao thức TCP}
-FLSync chạy trên TCP, nên thời gian truyền một khối 10 MB phụ thuộc vào bốn cơ chế của TCP trình bày dưới đây.
+%=====================================================================
+\subsection{Xây dựng các module phần mềm mô phỏng (Python Scripting)}
+\label{sec:2-5}
+Phần mềm thí nghiệm gồm các module Python trong thư mục \texttt{code/} (Bảng~\ref{tab:modules}). Mã nguồn đầy đủ nằm ở Phụ lục A2.
 
-\subsubsection{Thiết lập kết nối}
-TCP \cite{rfc9293} thiết lập kết nối bằng bắt tay ba bước SYN, SYN-ACK, ACK. Bên khởi tạo chỉ gửi được dữ liệu sau một RTT. Trong lúc bắt tay hai bên trao đổi các tuỳ chọn: MSS (mặc định 1460 byte trên Ethernet), Window Scale, SACK Permitted và Timestamps. Khi dùng Timestamps, mỗi đoạn mang thêm 12 byte tuỳ chọn nên phần tải tin thực tế còn 1448 byte.
+\begin{table}[H]
+    \centering
+    \caption{Các module phần mềm}
+    \label{tab:modules}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.5cm} >{\raggedright\arraybackslash}X}
+        \toprule
+        \textbf{Module} & \textbf{Chức năng} \\
+        \midrule
+        \texttt{flproto.py} & Đóng gói, gửi và nhận thông điệp FLSync (message framing) \\
+        \texttt{fl\_server.py} & Aggregation Server: socket lắng nghe, quản lý phiên client, phát trọng số, FedAvg, ghi log thời gian và độ chính xác \\
+        \texttt{fl\_client.py} & Edge Node: nhận trọng số toàn cục, huấn luyện cục bộ, đóng gói và gửi trọng số \\
+        \texttt{model.py} & Mạng nơ-ron MLP phân loại: dữ liệu, cross-entropy, SGD, FedAvg, tuần tự hoá \\
+        \texttt{topo.py} & Dựng topo Mininet, cấu hình băng thông, độ trễ, mất gói, định tuyến và iptables \\
+        \texttt{run\_experiments.py} & Chạy tự động batch kịch bản đo (Mục~\ref{sec:2-6}) \\
+        \texttt{summarize.py} & Gom log thành số liệu tổng hợp, tính thời gian tới độ chính xác mục tiêu \\
+        \texttt{pcap\_overhead.py} & Đọc pcap, tính byte trên dây, ACK, header và byte truyền lại \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
 
-\subsubsection{Cửa sổ trượt và điều khiển luồng}
-Bên gửi được phép có tối đa $\min(cwnd, rwnd)$ byte đang bay (đã gửi, chưa được xác nhận). $rwnd$ do bên nhận quảng bá theo chỗ trống bộ đệm; $cwnd$ do bên gửi tự điều chỉnh theo tình trạng mạng. Thông lượng tối đa của một luồng xấp xỉ:
-\begin{equation}
-    \text{Thông lượng} \approx \frac{\min(cwnd, rwnd)}{RTT}
-    \label{eq:tput}
-\end{equation}
-Để lấp đầy link, cửa sổ phải đạt ít nhất tích băng thông--độ trễ:
-\begin{equation}
-    BDP = B \cdot RTT
-    \label{eq:bdp}
-\end{equation}
-Với $B = 100$ Mbps: ở biên ($RTT = 4$~ms) $BDP = 50$~KB; qua WAN ($RTT = 44$~ms) $BDP = 550$~KB.
-
-\subsubsection{Điều khiển tắc nghẽn và slow start}
-RFC 5681 \cite{rfc5681} quy định hai pha chính. Trong slow start, $cwnd$ bắt đầu từ cửa sổ khởi đầu IW và tăng thêm một MSS cho mỗi ACK, tức là gấp đôi sau mỗi RTT. Linux dùng $IW = 10$ MSS theo RFC 6928 \cite{rfc6928}, khoảng 14{,}5~KB. Khi gặp mất gói hoặc vượt ngưỡng $ssthresh$, TCP chuyển sang pha tránh tắc nghẽn; Linux mặc định dùng thuật toán CUBIC \cite{rfc9438} cho pha này.
-
-Số RTT cần để $cwnd$ từ IW đạt BDP là:
-\begin{equation}
-    k^{*} = \left\lceil \log_2 \frac{BDP}{IW} \right\rceil
-    \label{eq:kstar}
-\end{equation}
-Ở biên, $k^{*} = \lceil \log_2(50/14{,}5) \rceil = 2$ RTT, tức 8~ms, bỏ qua được. Qua WAN, $k^{*} = \lceil \log_2(550/14{,}5) \rceil = 6$ RTT, tức 264~ms. Với khối 10 MB truyền mất gần 1~s, 264~ms này chiếm khoảng một phần tư; với khối 1 MB, phần lớn thời gian truyền nằm trong slow start.
-
-Ở FL, giữa hai lần gửi luôn có khoảng nghỉ huấn luyện. RFC 5681 (mục 4.1) khuyến nghị đặt lại $cwnd$ về cửa sổ khởi động lại nếu kết nối nghỉ lâu hơn một RTO; Linux bật mặc định qua tham số \nolinkurl{net.ipv4.tcp_slow_start_after_idle = 1}. Do đó \emph{dù giữ kết nối TCP lâu dài, mỗi vòng FL vẫn phải trả lại chi phí slow start}. Bản bắt gói ở Hình~\ref{fig:ws-stevens} xác nhận điều này: đầu vòng 2, luồng lại bắt đầu từ IW = 10 gói.
-
-\subsubsection{Chia sẻ băng thông giữa các luồng}
-Khi $N$ luồng TCP có cùng RTT đi qua một link nghẽn, cơ chế điều khiển tắc nghẽn đưa mỗi luồng về xấp xỉ $B/N$. Hệ quả là các Edge Node kết thúc gần như cùng lúc, và thời gian truyền $N$ khối gần bằng thời gian truyền một khối lớn gấp $N$ lần.
-
-\subsection{Giả lập mạng bằng Mininet}
-Mininet \cite{lantz2010mininet} tạo các host ảo bằng network namespace của Linux, nối chúng bằng cặp giao diện \texttt{veth} và switch Open vSwitch. Lớp \texttt{TCLink} gắn hai bộ lọc \texttt{tc} lên mỗi đầu link: HTB giới hạn tốc độ theo tham số \texttt{bw}, còn netem thêm độ trễ theo tham số \texttt{delay} và giới hạn hàng đợi theo \nolinkurl{max_queue_size}.
-Vì độ trễ được đặt trên \emph{mỗi đầu} của link, gói đi qua một link theo một chiều chịu đúng một lần \texttt{delay}. RTT giữa hai host bằng hai lần tổng độ trễ các link trên đường đi. Ví dụ với lệnh \texttt{sudo mn -{}-link tc,bw=10,delay=20ms}, đường h1--s1--h2 có hai link nên RTT $\approx 2 \times (20 + 20) = 80$~ms. Bản gợi ý đề tài ban đầu của nhóm ghi khoảng 40~ms cho lệnh này; con số 40~ms là của ví dụ \texttt{delay=10ms} trong tài liệu hướng dẫn Mininet. Handigol và cộng sự đã dùng Mininet tái tạo kết quả của nhiều bài báo mạng đã công bố, với điều kiện máy chạy giả lập không thiếu CPU \cite{handigol2012reproducible}.
-
-\subsection{Công cụ bắt và phân tích gói}
-\texttt{tcpdump} ghi gói trên một giao diện ra file \texttt{.pcap}; Wireshark đọc file đó và cung cấp:
+\subsubsection{Module giao thức \texttt{flproto.py}}
+Module định nghĩa hằng số cho năm loại thông điệp và ba hàm:
 \begin{itemize}
-    \item bộ lọc hiển thị (ví dụ \texttt{tcp.port == 5000});
-    \item \emph{Statistics $\rightarrow$ TCP Stream Graphs $\rightarrow$ Stevens/tcptrace}: số thứ tự theo thời gian, nhìn thấy rõ từng đợt slow start;
-    \item \emph{Statistics $\rightarrow$ I/O Graphs}: thông lượng theo thời gian của từng luồng;
-    \item \emph{Statistics $\rightarrow$ Conversations}: tổng byte và thời gian của mỗi kết nối.
+    \item \texttt{send\_msg(sock, type, round, node, length, payload=None)}: gửi header 20 byte bằng một lời gọi \texttt{sendall()} riêng, rồi gửi payload theo từng khối 64~KB. Nếu có \texttt{payload} (trọng số đã tuần tự hoá), hàm cắt nó qua \texttt{memoryview} để không sao chép; nếu không, hàm gửi \texttt{length} byte 0 mà không tạo sẵn cả khối trong bộ nhớ.
+    \item \texttt{recv\_exact(sock, n)}: gọi \texttt{recv()} lặp lại cho tới khi đủ đúng $n$ byte; báo lỗi nếu bên kia đóng kết nối giữa chừng.
+    \item \texttt{recv\_msg(sock, keep=False)}: đọc header bằng \texttt{recv\_exact}, kiểm tra \texttt{magic} và \texttt{version}, rồi đọc đúng \texttt{length} byte payload: giữ lại khi \texttt{keep=True} (để giải tuần tự hoá trọng số), bỏ đi khi chỉ đo mạng. Hàm trả về loại thông điệp, số vòng, định danh nút, độ dài và dữ liệu.
 \end{itemize}
 
+\subsubsection{Mô hình học máy \texttt{model.py}}
+Module cài đặt bằng \texttt{numpy} một mạng nơ-ron truyền thẳng (MLP) cho bài toán phân loại 10 lớp:
+\begin{itemize}
+    \item \textbf{Dữ liệu.} \texttt{make\_dataset()} sinh 8\,000 mẫu 64 chiều, mỗi lớp là ba cụm Gauss chồng lấn nhau, với seed cố định. Mọi node sinh ra cùng một tập, sau đó \texttt{partition()} chia đều 6\,000 mẫu huấn luyện cho $N$ Edge Node; server giữ 2\,000 mẫu kiểm tra.
+    \item \textbf{Kiến trúc.} Ba lớp kết nối đầy đủ 64--512--512--10, hàm kích hoạt ReLU ở hai lớp ẩn, khởi tạo He. Tổng 301\,066 tham số.
+    \item \textbf{Hàm mất mát và tối ưu.} Softmax kết hợp cross-entropy; \texttt{sgd\_train()} chạy SGD mini-batch (batch 32, tốc độ học 0{,}02, một epoch mỗi vòng) với lan truyền ngược viết tay.
+    \item \textbf{FedAvg và tuần tự hoá.} \texttt{fedavg()} lấy trung bình có trọng số theo số mẫu như~\eqref{eq:fedavg}; \texttt{to\_bytes()} và \texttt{from\_bytes()} chuyển giữa danh sách mảng và chuỗi byte \texttt{float32} big-endian.
+\end{itemize}
+Chạy riêng \texttt{python3 model.py} mô phỏng FedAvg với 4 node mà không qua mạng: độ chính xác tăng từ 9{,}2\% (khởi tạo) lên 72{,}8\% sau vòng 1, đạt 90\% ở vòng 14 và khoảng 91\% sau 30 vòng. Mỗi lượt huấn luyện cục bộ mất 0{,}1--0{,}3~s. Vì mọi bước đều dùng seed cố định, chuỗi độ chính xác theo vòng là xác định; đây là cơ sở để kiểm tra rằng mạng không làm sai lệch dữ liệu (Mục~\ref{sec:2-7}).
+
+\subsubsection{FL Server \texttt{fl\_server.py}}
+Server nhận các tham số dòng lệnh: cổng (mặc định 5000), số client $N$, số vòng, kích thước mô hình toàn cục, thời gian huấn luyện, file log và cờ \texttt{-{}-fedavg}. Hoạt động gồm ba giai đoạn:
+\begin{enumerate}
+    \item \textbf{Chờ client.} Server mở socket lắng nghe, gọi \texttt{accept()} cho tới khi đủ $N$ kết nối, mỗi kết nối bật \texttt{TCP\_NODELAY} và phải gửi \texttt{HELLO} kèm định danh nút. Ở chế độ FedAvg, server khởi tạo trọng số bằng \texttt{model.init\_params()} và nạp tập kiểm tra.
+    \item \textbf{Điều phối vòng.} Mỗi vòng, server tuần tự hoá mô hình toàn cục, lấy mốc $t_0$ rồi tạo $N$ luồng bằng module \texttt{threading}; mỗi luồng phục vụ một client: gửi \texttt{GLOBAL}, chờ \texttt{ACK} và ghi thời điểm nhận xong, chờ \texttt{UPDATE} (giữ lại payload) và ghi thời điểm tới. Khi mọi luồng kết thúc, server giải tuần tự hoá $N$ bản cập nhật, tổng hợp FedAvg và gửi \texttt{ACK} kết thúc vòng cho tất cả client.
+    \item \textbf{Ghi log và kết thúc.} Server đánh giá mô hình mới trên tập kiểm tra, rồi ghi một dòng CSV gồm số vòng, $N$, kích thước, $T_{down}$, $T_{up}$, $T_{round}$, độ chính xác và giá trị hàm mất mát. Sau vòng cuối, server gửi \texttt{BYE} và đóng các kết nối.
+\end{enumerate}
+Các mốc thời gian được tính như sau (đều lấy bằng \texttt{time.perf\_counter()} trên server, nên không cần đồng bộ đồng hồ giữa các host):
+\begin{equation}
+    T_{down} = \max_k t^{ack}_k, \qquad
+    T_{up} = \max_k t^{upd}_k - \min_k t^{ack}_k - T_{train}
+    \label{eq:measure}
+\end{equation}
+với $t^{ack}_k$, $t^{upd}_k$ là thời điểm (tính từ $t_0$) server nhận \texttt{ACK} và \texttt{UPDATE} của client $k$. Ở chế độ FedAvg, bước tổng hợp theo~\eqref{eq:fedavg} được tính thật và nằm trong $T_{round}$; nó chỉ tốn vài ms cho 301\,066 tham số, nhỏ không đáng kể so với thời gian truyền như đã nêu ở Mục~\ref{sec:1-2}. Ở chế độ đo mạng thuần, payload là byte 0 nên không có gì để tổng hợp.
+
+\subsubsection{FL Client \texttt{fl\_client.py}}
+Client nhận địa chỉ server, định danh, tổng số node, kích thước bản cập nhật, thời gian huấn luyện và cờ \texttt{-{}-fedavg}. Ở chế độ FedAvg, client sinh tập dữ liệu và lấy phần của mình bằng \texttt{model.partition()} trước khi kết nối. Do server có thể chưa kịp lắng nghe, client thử kết nối tối đa 50 lần, cách nhau 0{,}2~s. Sau khi kết nối và gửi \texttt{HELLO}, client lặp:
+\begin{itemize}
+    \item nhận \texttt{GLOBAL} thì trả \texttt{ACK} ngay, giải tuần tự hoá trọng số, huấn luyện một epoch SGD trên dữ liệu cục bộ, tuần tự hoá trọng số mới;
+    \item ngủ phần thời gian còn lại cho đủ \texttt{train} giây, để $T_{train}$ cố định ở mọi vòng và mọi kịch bản (nếu huấn luyện lâu hơn, client in cảnh báo);
+    \item gửi \texttt{UPDATE} chứa trọng số mới (ở chế độ đo mạng thuần: khối byte 0 cỡ 10 MB hoặc 1 MB);
+    \item nhận \texttt{ACK} của server thì chờ vòng sau; nhận \texttt{BYE} thì đóng kết nối.
+\end{itemize}
+
+\subsubsection{Các module hỗ trợ}
+\begin{itemize}
+    \item \texttt{topo.py}: hàm \texttt{make\_net(n, bw\_wan, wan\_delay, loss)} tạo topo ở Hình~\ref{fig:topo} với \texttt{TCLink} và \texttt{OVSBridge}, đặt băng thông, độ trễ và tỉ lệ mất gói cho chặng WAN, bật chuyển tiếp IP và nạp luật iptables trên \texttt{r1}, đặt cổng mặc định cho các host.
+    \item \texttt{summarize.py}: đọc log từng vòng, bỏ vòng 1, tính trung bình $T_{down}$, $T_{up}$, $T_{round}$, độ lệch chuẩn của $T_{round}$, thông lượng gộp pha upload $8NS_{up}/T_{up}$, RTT trung vị và lớn nhất từ log ping; với các lần chạy FedAvg còn tính số vòng và thời gian để độ chính xác lần đầu đạt 90\%. Kết quả ghi vào \texttt{data/q1\_bw.csv}, \texttt{data/q2\_*.csv} và \texttt{data/measured\_*.csv}.
+    \item \texttt{pcap\_overhead.py}: đọc trực tiếp định dạng pcap (không cần thư viện ngoài), tách hai chiều tại điểm gửi, đếm byte trên dây, byte payload, gói ACK thuần và byte truyền lại, ghi \texttt{data/q3\_overhead.csv}.
+\end{itemize}
+
+%=====================================================================
+\subsection{Thiết lập các giả thiết kiểm soát mô phỏng}
+\label{sec:2-6}
+Mục này nêu các giả thiết được giữ cố định trong mọi lần đo, giả thuyết về sự hội tụ cần kiểm chứng, các biến số và kịch bản đo, và quy trình đo tự động bằng \texttt{run\_experiments.py}.
+
+\subsubsection{Các giả thiết kiểm soát}
+Để mỗi lần đo chỉ khác nhau ở biến đang xét, các yếu tố sau được giữ cố định:
+\begin{itemize}
+    \item Topo được dựng mới cho mỗi lần đo, với cùng tham số link ở Bảng~\ref{tab:params}.
+    \item TSO, GSO, GRO được tắt trên mọi giao diện, để tcpdump thấy đúng từng đoạn và tránh sai khác do nhân gộp gói.
+    \item Mỗi nhóm kịch bản thay đổi một biến của chặng WAN, trừ Q2\_d$d$\_l$p$ quét độ trễ ở hai mức mất gói 0 và 1\%.
+    \item Mất gói ngẫu nhiên (netem, Bernoulli) chỉ được bật ở các kịch bản Q2 có $p > 0$, chỉ trên chặng WAN. Các kịch bản Q1 và K không có mất gói ngẫu nhiên; mất gói ở đó, nếu có, là do hàng đợi 200 gói bị tràn.
+    \item Thời gian huấn luyện cục bộ cố định 1~s ở mọi client và mọi vòng (SGD thật đệm cho đủ, hoặc \texttt{sleep}); mọi client có cùng tốc độ.
+    \item Mô hình, dữ liệu, cách chia dữ liệu và seed của SGD giống hệt nhau ở mọi lần chạy FedAvg, nên độ chính xác theo vòng chỉ phụ thuộc vào dữ liệu tới nơi có đúng hay không.
+    \item TCP dùng cấu hình mặc định của Linux (CUBIC, IW = 10, \nolinkurl{tcp_slow_start_after_idle = 1}).
+    \item Vòng 1 bị loại khỏi trung bình thời gian vì chứa ARP, bắt tay TCP và thời gian khởi động Python; nhưng vẫn được tính khi cộng dồn thời gian tới độ chính xác mục tiêu.
+\end{itemize}
+
+\subsubsection{Giá trị và giới hạn của các giả thiết}
+Các giả thiết trên đều là đơn giản hóa có chủ đích: giữ cố định mọi thứ ngoài mạng thì chênh lệch $T_{round}$ giữa hai lần chạy mới quy được cho mạng. Đổi lại, mỗi giả thiết bỏ đi một yếu tố của hệ thống thật (Bảng~\ref{tab:assume}).
+
+\begin{table}[H]
+    \centering
+    \caption{Giá trị và giới hạn của các giả thiết kiểm soát}
+    \label{tab:assume}
+    \small
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.9cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+        \toprule
+        \textbf{Giả thiết} & \textbf{Cô lập được gì} & \textbf{Yếu tố thực tế bị mất} & \textbf{Ảnh hưởng tới kết luận} \\
+        \midrule
+        $T_{train} = 1$~s ở mọi nút (đệm, hoặc \texttt{sleep} ở kịch bản K) & Các nút bắt đầu upload lệch nhau chỉ do tải xuống lệch nhau & Nút chậm do phần cứng (straggler) & $T_{round}$ thật dài thêm theo nút chậm nhất; hai luồng upload lệch giờ lại ít tranh chấp hơn \\
+        \midrule
+        Tổng hợp tức thời (kịch bản K); FedAvg thật vài ms (Q1, Q2) & Thời gian vòng chỉ còn phần mạng và 1~s huấn luyện & CPU của nút tổng hợp khi mô hình lớn, nhiều nút & Không đáng kể ở 1{,}2~MB; chưa kiểm chứng ở 10~MB \\
+        \midrule
+        Bản nén là khối 1~MB cho sẵn & Tác động của số byte lên mạng & Thời gian nén, giải nén; sai số do nén làm đổi số vòng $K$ & Mức giảm 36--38\% là cận trên: chưa trừ chi phí nén và số vòng có thể tăng \\
+        \midrule
+        Dữ liệu tổng hợp, chia IID & Độ chính xác theo vòng xác định, so được giữa các điều kiện mạng & Dữ liệu non-IID, lệch giữa các nút & $K = 14$ không dùng được cho dữ liệu khác; kết luận ``mạng không đổi $K$'' không phụ thuộc cách chia \\
+        \midrule
+        Mất gói Bernoulli độc lập (netem) & Đúng giả thiết của công thức Mathis & Mất gói theo cụm của mạng vô tuyến & Với cùng tỉ lệ $p$, mất gói theo cụm cắt cửa sổ ít lần hơn nhưng dễ gây RTO hơn; chưa đo \\
+        \midrule
+        Tắt TSO, GSO, GRO & Mỗi gói trên pcap là một đoạn TCP, đếm byte chính xác & Card mạng thật thường bật offload & CPU tốn hơn và gói đều hơn thực tế; số byte trên dây không đổi \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+Chế độ đo mạng thuần bỏ cả nội dung mô hình. Nó trả lời được câu hỏi ``một khối $S$ byte mất bao lâu để đi qua mạng này'' và cho phép đổi $S$ tự do, nhưng không nói gì về độ chính xác. Vì vậy mọi kết luận về hội tụ trong báo cáo chỉ lấy từ các lần chạy FedAvg thật, còn kịch bản K chỉ dùng cho thời gian, thông lượng và RTT.
+
+\subsubsection{Giả thuyết về sự hội tụ}
+Vì TCP truyền lại mọi gói bị mất, trọng số tới nơi luôn đầy đủ và đúng từng bit. Nhóm đặt giả thuyết rằng mô hình toàn cục sau vòng $k$ giống hệt nhau ở mọi điều kiện mạng, và mạng chỉ kéo giãn trục thời gian. Khi đó thời gian để đạt độ chính xác mục tiêu $a^{*}$ là
+\begin{equation}
+    TTA(a^{*}) = \sum_{k=1}^{K(a^{*})} T_{round}^{(k)} \approx K(a^{*}) \cdot \overline{T_{round}}
+    \label{eq:tta}
+\end{equation}
+với $K(a^{*})$ là số vòng cần thiết, chỉ phụ thuộc vào thuật toán học (14 vòng với $a^{*} = 90\%$ ở cấu hình của \texttt{model.py}). Giả thuyết này được kiểm chứng ở Q2.
+
+\subsubsection{Biến số và kịch bản đo}
+Mỗi câu hỏi nghiên cứu thay đổi một biến độc lập, giữ các biến khác cố định (Bảng~\ref{tab:vars}).
+
+\begin{table}[H]
+    \centering
+    \caption{Biến số kiểm thử}
+    \label{tab:vars}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.0cm} >{\raggedright\arraybackslash}X}
+        \toprule
+        \textbf{Loại biến} & \textbf{Biến và giá trị} \\
+        \midrule
+        Biến độc lập & Băng thông WAN $B \in \{1, 2, 5, 10, 20, 50, 100\}$~Mbps và số Edge Node $N \in \{2,\dots,6\}$ (Q1); tỉ lệ mất gói $p \in \{0; 0{,}5; 1; 2; 3; 5\}\%$ và độ trễ một chiều $d_{WAN} \in \{5, 20, 50, 100\}$~ms (Q2); kích thước chiều lên $S_{up} \in \{10, 1\}$~MB và vị trí Aggregator (Q3) \\
+        \midrule
+        Biến kiểm soát & Các giả thiết ở mục trên; mô hình, dữ liệu, seed; $T_{train} = 1$~s; hàng đợi 200 gói \\
+        \midrule
+        Biến phụ thuộc & $T_{down}$, $T_{up}$, $T_{round}$ và độ lệch chuẩn; thông lượng gộp; RTT khi có tải; độ chính xác theo vòng, số vòng và thời gian tới 90\%; byte trên dây, tỉ lệ ACK, header và truyền lại (từ pcap) \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+Script \texttt{run\_experiments.py} chia kịch bản thành ba nhóm, chọn bằng tham số \texttt{-{}-group} (Bảng~\ref{tab:scen}). Nhóm Q1 và Q2 chạy FedAvg thật với $N = 4$ và nút tổng hợp trên cloud, vì chặng WAN là nơi đặt điều kiện mạng. Nhóm K chạy ở chế độ đo mạng thuần với khối 10 MB, mỗi kịch bản lặp với $N = 2, 3, 4, 5, 6$.
+
+\begin{table}[H]
+    \centering
+    \caption{Các nhóm kịch bản đo}
+    \label{tab:scen}
+    \small
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.3cm} >{\raggedright\arraybackslash}X c c}
+        \toprule
+        \textbf{Nhóm / mã} & \textbf{Điều kiện} & \textbf{Số lần chạy} & \textbf{Phục vụ} \\
+        \midrule
+        Q1\_bw$B$ & Cloud, $B$ = 1, 2, 5, 10, 20, 50, 100 Mbps; 20 ms; không mất gói; 6 vòng & 7 & Q1 \\
+        \midrule
+        Q2\_loss$p$ & Cloud, 100 Mbps, 20 ms; $p$ = 0; 0{,}5; 1; 2; 3; 5\%; 20 vòng; bắt pcap & 6 & Q2, Q3 \\
+        \midrule
+        Q2\_d$d$\_l$p$ & Cloud, 100 Mbps; $d$ = 5, 20, 50, 100 ms; $p$ = 0 và 1\%; 20 vòng; bắt pcap & 8 & Q2, Q3 \\
+        \midrule
+        K1\_edge\_full & Edge; 10 MB xuống, 10 MB lên & 5 & Q1, Q3 \\
+        K2\_edge\_comp & Edge; 10 MB xuống, 1 MB lên & 5 & Q3 \\
+        K2\_cloud\_comp & Cloud 100 Mbps; 10 MB xuống, 1 MB lên & 5 & Q3 \\
+        K3\_cloud\_full & Cloud 100 Mbps; 10 MB xuống, 10 MB lên & 5 & Q3 \\
+        K3\_cloud20\_full & Cloud 20 Mbps; 10 MB xuống, 10 MB lên & 5 & Q3 \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+Ở kịch bản nén, chỉ chiều lên được nén vì đây là cách các kỹ thuật nén gradient thường áp dụng: máy khách gửi gradient thưa, còn mô hình toàn cục phát xuống vẫn đầy đủ.
+
+\subsubsection{Quy trình đo tự động}
+Với mỗi lần chạy trong danh sách do hàm \texttt{experiments(group)} sinh ra, \texttt{run\_experiments.py} thực hiện:
+\begin{enumerate}
+    \item Khởi tạo topo mới bằng \texttt{make\_net(bw\_wan, wan\_delay, loss)}, tắt TSO/GSO/GRO trên mọi giao diện.
+    \item Bật \texttt{ping -i 0.2} từ \texttt{h1} tới nút tổng hợp trong suốt lần đo để ghi RTT khi có tải.
+    \item (Tuỳ chọn \texttt{-{}-pcap}) bật \texttt{tcpdump -s 96} trên giao diện của nút tổng hợp, và với nút tổng hợp trên cloud thì thêm giao diện \texttt{r1-eth0}, để có góc nhìn phía gửi của cả hai chiều chặng WAN.
+    \item Chạy \texttt{fl\_server.py} trên nút tổng hợp, sau đó $N$ tiến trình \texttt{fl\_client.py} trên \texttt{h1..hN} (thêm \texttt{-{}-fedavg} cho nhóm Q1, Q2). Mỗi tiến trình bị giới hạn một luồng BLAS để các client không tranh CPU.
+    \item Server ghi mỗi vòng một dòng gồm $T_{down}$, $T_{up}$, $T_{round}$, độ chính xác vào \texttt{results/<tag>.csv}.
+    \item Khi đủ số vòng (hoặc quá 1 giờ), dừng mọi tiến trình và huỷ topo.
+    \item Chạy \texttt{summarize.py} và \texttt{pcap\_overhead.py} để tạo các bảng trong \texttt{data/}.
+\end{enumerate}
+Đường dẫn được bọc bằng \texttt{shlex.quote} trước khi ghép vào lệnh shell của host Mininet, vì thư mục dự án có thể chứa dấu cách. Thư mục kết quả đổi được qua biến môi trường \texttt{FL\_RES}; nhóm ghi kết quả vào ổ đĩa của WSL để tránh chậm khi tcpdump ghi file pcap lớn.
+
+Lệnh chạy toàn bộ:
+\codesnap{run_all}
+
+\subsubsection{Cách đo từng chỉ số}
+\begin{itemize}
+    \item $T_{down}$: từ lúc server bắt đầu gửi \texttt{GLOBAL} tới lúc nhận \texttt{ACK} tầng ứng dụng của client cuối cùng.
+    \item $T_{up}$: từ lúc client đầu tiên kết thúc huấn luyện tới lúc \texttt{UPDATE} cuối cùng tới server, theo~\eqref{eq:measure}.
+    \item $T_{round}$: từ lúc bắt đầu gửi \texttt{GLOBAL} tới lúc server gửi xong \texttt{ACK} kết thúc vòng.
+    \item RTT khi có tải: giá trị \texttt{ping} trong khoảng thời gian có truyền dữ liệu, so với RTT lúc rảnh.
+    \item $d_{trans}$ hiệu dụng: $T_{up}$ trừ phần slow start đọc từ biểu đồ Stevens.
+    \item Độ chính xác: tỉ lệ phân loại đúng của mô hình toàn cục trên 2\,000 mẫu kiểm tra, đo sau mỗi vòng.
+    \item TTA (time-to-accuracy): tổng $T_{round}$ từ vòng 1 tới vòng đầu tiên có độ chính xác $\geq 90\%$, theo~\eqref{eq:tta}.
+    \item Hiệu suất byte: tổng trọng số cần chuyển ($2 N \cdot S$ mỗi vòng) chia cho tổng byte khung Ethernet đi ra từ phía gửi của cả hai chiều.
+    \item Tỉ lệ truyền lại: byte payload gửi đi trừ byte duy nhất của mỗi luồng (seq cao nhất trừ seq đầu), chia cho byte payload.
+\end{itemize}
+
+\subsubsection{Các yếu tố ảnh hưởng độ tin cậy}
+Mininet chạy mọi host trên cùng một nhân hệ điều hành, nên CPU của máy ảo là nguồn sai số lớn nhất. Nhóm cấp ít nhất 2 vCPU và chỉ đo khi \texttt{iperf} đạt gần 95 Mbps. Đồng hồ thì không gây sai số: mọi thời điểm đều lấy trên server.
+
+Hai nguồn sai số còn lại nằm ở cách đo. Nếu lấy $T_{down}$ theo thời điểm \texttt{sendall()} trả về, kết quả sẽ nhỏ hơn thực tế vài trăm ms; ACK tầng ứng dụng của FLSync có để tránh lỗi này. Kích thước hàng đợi (\nolinkurl{max_queue_size}) cũng ảnh hưởng: quá lớn thì RTT khi có tải tăng mạnh, quá nhỏ thì mất gói liên tục. Nhóm chọn 200 gói, tức tối đa khoảng 24~ms trễ hàng đợi ở 100 Mbps.
+
+%=====================================================================
+\subsection{Thực nghiệm và đánh giá}
+\label{sec:2-7}
+Mục này trình bày kết quả cho ba câu hỏi Q1--Q3 theo đề cương: tác động của băng thông biên tới thời gian vòng (Q1), của mất gói và độ trễ tới sự hội tụ (Q2), và hiệu suất, overhead của giao thức cùng khả năng triển khai tại biên (Q3); sau đó là phần phân tích gói tin bằng Wireshark.
+
+\textbf{Nguồn gốc số liệu.} Mọi số liệu lấy từ Mininet 2.3.0 chạy trên Ubuntu 22.04 (WSL2); các bảng số được tạo bởi ba script \texttt{run\_experiments.py}, \texttt{summarize.py} và \texttt{pcap\_overhead.py}. Thời gian trung bình bỏ vòng 1; độ lệch chuẩn (đlc) tính trên các vòng còn lại: 5 vòng với Q1, 19 vòng với Q2, 9 vòng với các kịch bản K. Log từng vòng và log ping của 21 lần chạy Q1, Q2 nằm trong \texttt{results/fl/}; file pcap của Q2 (tổng 562~MB) được giữ trên ổ đĩa WSL, phần thống kê được ghi vào \texttt{data/q3\_overhead.csv}.
+
+Cách server ghi thời gian~\eqref{eq:measure} quyết định cách đọc $T_{up}$. $T_{down}$ lấy theo nút nhận xong \emph{cuối cùng}, còn $T_{up}$ tính từ lúc nút \emph{đầu tiên} train xong. Gọi độ lệch kết thúc tải xuống là
+\begin{equation}
+    \Delta = \max_k t^{ack}_k - \min_k t^{ack}_k
+    \label{eq:skew}
+\end{equation}
+Thay vào~\eqref{eq:measure}, và bỏ qua vài ms tổng hợp, ta có
+\begin{equation}
+    T_{round} = T_{down} + T_{train} + T_{up} - \Delta
+    \label{eq:identity}
+\end{equation}
+Như vậy $T_{round}$ luôn nhỏ hơn tổng ba pha đúng một lượng $\Delta$, vì $\Delta$ được tính hai lần: một lần trong $T_{down}$ và một lần trong $T_{up}$. Hai pha tải xuống và upload chỉ thực sự chạy cùng lúc trên mạng khi $\Delta > T_{train} = 1$~s. Khi $\Delta < 1$~s, phần chồng lên nhau là bước huấn luyện của nút nhanh với đoạn cuối tải xuống của nút chậm. Vì lý do này, $T_{up}$ được đọc như \emph{cận trên} của thời gian truyền chiều lên, còn
+\begin{equation}
+    T_{up}^{*} = T_{up} - \Delta = T_{round} - T_{down} - T_{train}
+    \label{eq:tupnet}
+\end{equation}
+là \emph{cận dưới}: thời gian từ lúc nút cuối cùng train xong tới khi bản cập nhật cuối tới server. Bảng~\ref{tab:skew} cho $\Delta$ của các kịch bản K, tính từ~\eqref{eq:identity} với các giá trị trung bình. Nhóm đối chiếu công thức này với bản bắt gói K1 và K3 (\nolinkurl{tools/phase_overlap.py}): ở vòng 2 và vòng 3 của mỗi lần chạy, $\Delta$ đọc trực tiếp trên pcap (0{,}90 và 0{,}22~s với K1; 1{,}30 và 1{,}07~s với K3) trùng với giá trị tính từ log tới 0{,}01~s.
+
+\begin{table}[H]
+    \centering
+    \caption{Độ lệch kết thúc tải xuống $\Delta$ (giây), trung bình các vòng 2--10}
+    \label{tab:skew}
+    \begin{tabular}{c c c c c c}
+        \toprule
+        $N$ & K1 Edge & K2 Edge & K3 Cloud 100M & K2 Cloud 100M & K3 Cloud 20M \\
+        \midrule
+        2 & 0,03 & 0,17 & 0,32 & 0,51 & 0,39 \\
+        3 & 0,25 & 0,19 & 1,18 & 1,45 & 1,88 \\
+        4 & 0,42 & 0,37 & 2,65 & 1,22 & 2,83 \\
+        5 & 0,88 & 0,76 & 3,59 & 2,08 & 5,21 \\
+        6 & 1,43 & 1,30 & 2,49 & 2,82 & 5,21 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+$\Delta$ có hai nguồn: các luồng TCP chia băng thông không đều, và qua WAN thì một luồng bị mất gói phải chờ nhiều RTT mới tăng lại cửa sổ. Ở biên, $\Delta$ chỉ vượt 1~s khi $N = 6$; qua WAN, nó vượt 1~s từ $N = 3$.
+
+\subsubsection{Kiểm tra môi trường}
+Trước khi đo, nhóm dựng topo bằng \texttt{tools/sanity.py} (giống \texttt{topo.py}, thêm bước tắt TSO/GSO/GRO như \texttt{run\_experiments.py}) rồi chạy ping và iperf trong Mininet CLI. Hình~\ref{fig:sanity100} và Hình~\ref{fig:sanity20} là ảnh chụp terminal của hai lần chạy, với WAN 100 Mbps và 20 Mbps.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{Images/run/sanity_wan100.png}
+    \caption{Kiểm tra RTT và thông lượng trong Mininet CLI, WAN 100 Mbps}
+    \label{fig:sanity100}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{Images/run/sanity_wan20.png}
+    \caption{Kiểm tra thông lượng tới Cloud Server, WAN 20 Mbps}
+    \label{fig:sanity20}
+\end{figure}
+
+RTT đo bằng 20 gói \texttt{ping} cách nhau 0{,}2~s; \texttt{iperf} chạy 10~s trên cổng 5000, cổng duy nhất firewall của \texttt{r1} cho phép tới Cloud Server. RTT nhỏ nhất là 4{,}25~ms tới \texttt{agg} và 44{,}47~ms tới \texttt{cloud}, khớp với giá trị kỳ vọng 4 và 44~ms. RTT trung bình (5{,}07 và 48{,}70~ms) cao hơn vì gói đầu tiên phải chờ phân giải ARP (13{,}6 và 112{,}9~ms). Thông lượng iperf là 95{,}1 Mbps tới \texttt{agg}, 92{,}0 Mbps tới \texttt{cloud} qua WAN 100 Mbps và 18{,}9 Mbps qua WAN 20 Mbps, đều không thấp hơn quá 4\% so với giới hạn $\eta B$ (95{,}6 và 19{,}1 Mbps). Cấu hình băng thông và độ trễ của topo vì vậy có hiệu lực.
+
+Hình~\ref{fig:runk1} là ảnh chụp một lần chạy thử kịch bản K1 với $N = 4$ và 5 vòng, gõ trực tiếp trong Mininet CLI: bốn Edge Node chạy nền, Aggregator in thời gian từng vòng rồi ghi log CSV. $T_{round}$ của vòng 2--5 là 7{,}27--7{,}46~s, khớp với giá trị trung bình 7{,}333~s ở Bảng~\ref{tab:q1}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{Images/run/run_k1_n4.png}
+    \caption{Một lần chạy kịch bản K1, $N = 4$, 5 vòng: log của Aggregator và file CSV}
+    \label{fig:runk1}
+\end{figure}
+
+\subsubsection{Q1 -- Tác động của băng thông biên đến thời gian vòng FL}
+Nhóm kịch bản Q1\_bw$B$ giữ nguyên mọi điều kiện và chỉ hạ băng thông chặng biên--cloud từ 100 xuống 1~Mbps. Bốn Edge Node chạy FedAvg thật với mô hình 1{,}2~MB, nút tổng hợp đặt trên cloud, độ trễ WAN 20~ms, không mất gói. Bảng~\ref{tab:q1bw} và Hình~\ref{fig:q1bw} cho kết quả. Cột TTA ước tính bằng~\eqref{eq:tta} với $K = 14$ vòng; giá trị $K$ này được kiểm chứng ở Q2.
+
+\begin{table}[H]
+    \centering
+    \caption{Thời gian một vòng theo băng thông chặng WAN, $N = 4$, mô hình 1{,}2~MB}
+    \label{tab:q1bw}
+    \begin{tabular}{r c c c c c c}
+        \toprule
+        \multirow{2}{*}{$B$ (Mbps)} & \multicolumn{4}{c}{\textbf{Thời gian đo (s)}} & \textbf{RTT trung vị} & \textbf{TTA ước tính} \\
+        \cmidrule(lr){2-5}
+        & $T_{down}$ & $T_{up}$ & $T_{round}$ & đlc & \textbf{khi có tải (ms)} & \textbf{(s)} \\
+        \midrule
+        1 & 43,50 & 43,15 & 77,79 & 1,05 & 2054 & 1089 \\
+        2 & 21,22 & 21,23 & 39,48 & 0,84 & 1013 & 553 \\
+        5 & 8,16 & 8,22 & 16,43 & 0,53 & 412 & 230 \\
+        10 & 4,08 & 4,09 & 8,51 & 0,16 & 200 & 119 \\
+        20 & 2,11 & 2,17 & 5,02 & 0,11 & 85 & 70 \\
+        50 & 1,02 & 1,78 & 3,57 & 0,50 & 44,5 & 50 \\
+        100 & 0,60 & 0,92 & 2,32 & 0,23 & 44,4 & 33 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}
+        \begin{axis}[
+            width=0.85\textwidth, height=7cm,
+            xmode=log, ymode=log,
+            xlabel={Băng thông chặng WAN $B$ (Mbps)}, ylabel={Thời gian (s)},
+            xtick={1,2,5,10,20,50,100}, xticklabels={1,2,5,10,20,50,100},
+            ytick={0.5,1,2,5,10,20,50,100}, yticklabels={0{,}5,1,2,5,10,20,50,100},
+            xmin=0.8, xmax=125, ymin=0.4, ymax=120,
+            grid=major, grid style={gray!25},
+            legend pos=north east, legend cell align=left,
+        ]
+            \addplot[thick, red, mark=triangle*, mark size=3pt, error bars/.cd, y dir=both, y explicit]
+                table[x=bw, y=t_round, y error=t_round_sd, col sep=comma] {data/q1_bw.csv};
+            \addlegendentry{$T_{round}$}
+            \addplot[thick, blue, mark=*, dashed] table[x=bw, y=t_down, col sep=comma] {data/q1_bw.csv};
+            \addlegendentry{$T_{down}$}
+            \addplot[gray, dashed, domain=0.8:125, samples=2] {1};
+            \addlegendentry{$T_{train} = 1$~s}
+        \end{axis}
+    \end{tikzpicture}
+    \caption{Thời gian một vòng và pha tải xuống theo băng thông chặng WAN (hai trục logarit)}
+    \label{fig:q1bw}
+\end{figure}
+
+\textbf{Vùng băng thông là điểm nghẽn ($B \le 20$~Mbps).} Ở vùng này $T_{round}$ gần như tỉ lệ nghịch với $B$: hạ băng thông 10 lần (10 xuống 1~Mbps) làm $T_{round}$ tăng 9{,}1 lần, và trên đồ thị hai trục logarit các điểm nằm gần một đường thẳng. Tích $B \cdot T_{down}$ giữ ở 40{,}8--43{,}5~Mbit, xấp xỉ $8NS/\eta = 40{,}3$~Mbit của bốn bản mô hình (Mục~\ref{sec:1-3}), nghĩa là pha tải xuống dùng gần hết băng thông. Ở 1~Mbps, tích này lớn hơn khoảng 8\% vì RTT thực tế bị hàng đợi kéo dài (xem phần bufferbloat dưới đây). $T_{round}$ nhỏ hơn $T_{down} + T_{train} + T_{up}$ đúng bằng $\Delta$ theo~\eqref{eq:identity}: 9{,}9~s ở 1~Mbps, 4{,}0~s ở 2~Mbps và dưới 1~s từ 5~Mbps trở lên.
+
+\textbf{Vùng phần cố định chiếm ưu thế ($B \ge 50$~Mbps).} Từ 50 lên 100~Mbps, $T_{round}$ chỉ giảm từ 3{,}57 xuống 2{,}32~s. Lúc này 1~s huấn luyện, các RTT slow start ở đầu mỗi pha và độ lệch thời điểm kết thúc giữa các luồng chiếm phần lớn vòng, nên tăng thêm băng thông không còn nhiều tác dụng. Riêng ở 50~Mbps, $T_{up}$ (1{,}78~s) dài gần gấp đôi $T_{down}$ (1{,}02~s) và độ lệch chuẩn lớn (0{,}50~s). Bốn luồng upload bắt đầu slow start gần như cùng lúc, và netem đã dùng khoảng 83 trong 200 gói để giữ trễ 20~ms, nên nhiều khả năng tổng cửa sổ đã vượt phần hàng đợi còn lại và gây mất gói tại hàng đợi chiều lên của \texttt{r1}. Q1 không bắt pcap nên nhóm chưa xác nhận điều này; cơ chế được trình bày ở Q2 (Bảng~\ref{tab:qverify}).
+
+\textbf{Bufferbloat khi băng thông hẹp.} Cột RTT cho thấy một hệ quả phụ của băng thông thấp. Gói ping từ \texttt{h1} tới \texttt{cloud} đi chung hàng đợi 200 gói với dữ liệu FL. Ở 1~Mbps, theo~\eqref{eq:dqueue}, hàng đợi đầy cần $200 \times 1514 \times 8 / 10^6 \approx 2{,}4$~s để xả hết, nên RTT trung vị lên tới 2\,054~ms (gấp 46 lần RTT rảnh 44~ms) và lớn nhất 3\,303~ms. Ở 10~Mbps RTT trung vị còn 200~ms; ở 50--100~Mbps trở về đúng 44~ms. Với FL, bufferbloat không làm vòng chậm thêm nhiều, vì khối dữ liệu lớn đằng nào cũng phải chờ băng thông. Nhưng mọi lưu lượng tương tác khác dùng chung đường biên (điều khiển, giám sát, kể cả các thông điệp ACK nhỏ của FLSync) bị trễ hàng giây. Hướng xử lý là giới hạn hàng đợi theo thời gian chờ (AQM như CoDel) thay vì theo số gói, hoặc tách lưu lượng FL vào một lớp dịch vụ riêng.
+
+\textbf{Băng thông tối thiểu.} Ở vùng tỉ lệ nghịch, mỗi pha mất khoảng $8NS/(\eta B)$, nên có thể ước lượng băng thông chặng biên cần có để giữ thời gian vòng dưới một ngưỡng $T^{*}$:
+\begin{equation}
+    B \geq \frac{2 \cdot 8 N S}{\eta\,(T^{*} - T_{train})}
+    \label{eq:bmin}
+\end{equation}
+Với $N = 4$, $S = 1{,}2$~MB và $T^{*} = 10$~s, cần khoảng 9~Mbps, khớp với số đo 8{,}51~s ở 10~Mbps. Theo cột TTA, cùng một mô hình cần khoảng 18 phút để đạt 90\% ở 1~Mbps, so với khoảng 33~s ở 100~Mbps.
+
+\textbf{Băng thông chia sẻ giữa nhiều Edge Node.} Băng thông mỗi nút thực sự nhận được còn phụ thuộc vào số nút cùng chia link nghẽn. Kịch bản K1 (Aggregator tại biên, khối 10~MB, đo mạng thuần) giữ băng thông cố định và tăng $N$ từ 2 lên 6. Bảng~\ref{tab:q1} và Hình~\ref{fig:q1} cho thời gian các pha.
+
+\begin{table}[H]
+    \centering
+    \caption{Thời gian các pha theo số Edge Node, kịch bản K1 (giây)}
+    \label{tab:q1}
+    \begin{tabular}{c c c c c}
+        \toprule
+        $N$ & $T_{down}$ & $T_{up}$ & $T_{round}$ & độ lệch chuẩn $T_{round}$ \\
+        \midrule
+        2 & 1,717 & 1,755 & 4,446 & 0,036 \\
+        3 & 2,558 & 2,578 & 5,882 & 0,114 \\
+        4 & 3,374 & 3,374 & 7,333 & 0,117 \\
+        5 & 4,215 & 4,235 & 8,566 & 0,207 \\
+        6 & 5,159 & 5,214 & 9,943 & 0,311 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}
+        \begin{axis}[
+            width=0.85\textwidth, height=7cm,
+            xlabel={Số Edge Node $N$}, ylabel={Thời gian (s)},
+            xmin=1.8, xmax=6.2, xtick={2,3,4,5,6},
+            ymin=0, grid=major, grid style={gray!25},
+            legend pos=north west, legend cell align=left,
+        ]
+            \addplot[thick, red, mark=triangle*, error bars/.cd, y dir=both, y explicit]
+                table[x=n, y=t_round, y error=t_round_sd, col sep=comma] {data/measured_K1_edge_full.csv};
+            \addlegendentry{$T_{round}$}
+            \addplot[thick, blue, mark=*, dashed] table[x=n, y=t_down, col sep=comma] {data/measured_K1_edge_full.csv};
+            \addlegendentry{$T_{down}$}
+            \addplot[thick, blue!50, mark=square, dashed] table[x=n, y=t_up, col sep=comma] {data/measured_K1_edge_full.csv};
+            \addlegendentry{$T_{up}$}
+        \end{axis}
+    \end{tikzpicture}
+    \caption{Thời gian các pha theo số Edge Node, Aggregator tại biên, 10 MB}
+    \label{fig:q1}
+\end{figure}
+
+\textbf{Nhận xét.} $T_{down}$ tăng từ 1{,}717~s ($N = 2$) lên 5{,}159~s ($N = 6$), tức khoảng 0{,}86~s cho mỗi nút thêm vào, sát với thời gian truyền một khối 10~MB ở tốc độ $\eta B$ ($8S/(\eta B) \approx 0{,}84$~s). Nguyên nhân là link 100 Mbps tới Aggregator đã bão hoà: thêm Edge Node không làm tổng thông lượng tăng mà chỉ chia nhỏ phần của mỗi nút ($B/N$, còn khoảng 16 Mbps mỗi nút khi $N = 6$). Trong khi đó, mỗi link truy nhập của Edge Node có 100 Mbps nhưng chỉ dùng được $1/N$.
+
+$T_{round}$ tăng khoảng 1{,}37~s mỗi nút, ít hơn tổng mức tăng của hai pha ($0{,}86 + 0{,}86$~s), vì $\Delta$ tăng từ 0{,}03~s ($N = 2$) lên 1{,}43~s ($N = 6$) và bị trừ ra theo~\eqref{eq:identity}. Ví dụ ở $N = 6$: $5{,}16 + 1 + 5{,}21 - 1{,}43 = 9{,}94$~s. Độ lệch chuẩn tăng từ 0{,}036~s lên 0{,}311~s, cho thấy các luồng chia băng thông kém đều hơn khi có nhiều nút.
+
+Bảng~\ref{tab:q1thr} cho thông lượng của pha upload, tính bằng $8NS/T_{up}$. Thông lượng gộp đứng yên ở 91--95 Mbps, sát giới hạn $\eta B = 95{,}6$~Mbps của link 100 Mbps, còn phần của mỗi nút giảm theo $1/N$.
+
+\begin{table}[H]
+    \centering
+    \caption{Thông lượng ứng dụng của pha upload, kịch bản K1 (Mbps)}
+    \label{tab:q1thr}
+    \begin{tabular}{c c c c}
+        \toprule
+        $N$ & \textbf{gộp} & \textbf{mỗi nút} & \textbf{chia đều $\eta B / N$} \\
+        \midrule
+        2 & 91,2 & 45,6 & 47,8 \\
+        3 & 93,1 & 31,0 & 31,9 \\
+        4 & 94,8 & 23,7 & 23,9 \\
+        5 & 94,4 & 18,9 & 19,1 \\
+        6 & 92,1 & 15,4 & 15,9 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Cột gộp lấy từ cột \texttt{thr\_mbps} do \texttt{summarize.py} tính, và có thể đối chiếu với \emph{Statistics $\rightarrow$ Conversations} trên Wireshark. Link nghẽn vì vậy là link \texttt{s1}--\texttt{agg}, tức \emph{giao diện mạng của nút tổng hợp}; link truy nhập của mỗi Edge Node còn dư $(N-1)/N$ băng thông. Muốn rút ngắn vòng khi tăng số nút, phải tăng băng thông vào Aggregator, giảm kích thước dữ liệu (nén, xem Q3), hoặc chia tải cho nhiều Aggregator (tổng hợp phân cấp).
+
+\subsubsection{Q2 -- Ảnh hưởng của mất gói và độ trễ đến sự hội tụ}
+Nhóm kịch bản Q2 chạy 20 vòng FedAvg với nút tổng hợp trên cloud và WAN 100~Mbps. Lần lượt thêm mất gói 0--5\% mỗi chiều (độ trễ 20~ms), rồi tăng độ trễ một chiều lên 5--100~ms với mất gói 0 và 1\%. Mọi lần chạy đều bắt pcap ở hai phía chặng WAN.
+
+\textbf{Độ chính xác theo vòng không đổi.} Ở cả 14 lần chạy, chuỗi độ chính xác theo vòng giống hệt nhau tới chữ số thứ tư: 72{,}75\% sau vòng 1, 80{,}50\% sau vòng 2, lần đầu đạt 90\% ở vòng 14 và kết thúc ở 90{,}80\% sau vòng 20. Chuỗi này cũng trùng với kết quả chạy \texttt{model.py} không qua mạng. Kể cả khi mất 5\% gói, TCP truyền lại đủ mọi đoạn nên trọng số tới nơi đúng từng bit, và thuật toán học không bị ảnh hưởng. Mất gói và độ trễ vì vậy chỉ tác động tới hội tụ qua \emph{thời gian}: số vòng cần thiết $K = 14$ giữ nguyên, còn mỗi vòng dài ra. Đây là kiểm chứng trực tiếp cho giả thuyết~\eqref{eq:tta}.
+
+\begin{table}[H]
+    \centering
+    \caption{Ảnh hưởng của tỉ lệ mất gói, WAN 100~Mbps, độ trễ 20~ms, $N = 4$}
+    \label{tab:q2loss}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{c c c c c c}
+        \toprule
+        \textbf{Mất gói} $p$ & \multicolumn{2}{c}{$T_{round}$ (s)} & \textbf{Byte truyền lại} & \textbf{Vòng tới} & \textbf{TTA} \\
+        \cmidrule(lr){2-3}
+        (\% mỗi chiều) & trung bình & đlc & (\%) & \textbf{90\%} & (s) \\
+        \midrule
+        0 & 2,26 & 0,16 & 0,00 & 14 & 32,5 \\
+        0,5 & 6,22 & 0,46 & 0,48 & 14 & 83,1 \\
+        1 & 8,89 & 0,80 & 1,00 & 14 & 120,2 \\
+        2 & 12,49 & 0,65 & 1,99 & 14 & 172,2 \\
+        3 & 16,38 & 1,01 & 2,99 & 14 & 228,7 \\
+        5 & 22,98 & 1,30 & 5,08 & 14 & 317,1 \\
+        \bottomrule
+    \end{tabular}}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}
+        \begin{axis}[
+            width=0.85\textwidth, height=7cm,
+            xlabel={Thời gian thực (s)}, ylabel={Độ chính xác trên tập kiểm tra},
+            xmin=0, xmax=640, ymin=0.70, ymax=0.92, xtick distance=100,
+            yticklabel={\pgfmathparse{\tick*100}\pgfmathprintnumber{\pgfmathresult}\%},
+            grid=major, grid style={gray!25},
+            legend pos=south east, legend cell align=left,
+        ]
+            \addplot[thick, blue, mark=*, mark size=1.2pt] table[x=time, y=acc, col sep=comma] {data/q2_curve_Q2_loss0.csv};
+            \addlegendentry{$p = 0$, RTT 44 ms}
+            \addplot[thick, teal, mark=square*, mark size=1.2pt] table[x=time, y=acc, col sep=comma] {data/q2_curve_Q2_loss1.csv};
+            \addlegendentry{$p = 1\%$, RTT 44 ms}
+            \addplot[thick, orange, mark=triangle*, mark size=1.5pt] table[x=time, y=acc, col sep=comma] {data/q2_curve_Q2_loss5.csv};
+            \addlegendentry{$p = 5\%$, RTT 44 ms}
+            \addplot[thick, red!70!black, mark=diamond*, mark size=1.5pt] table[x=time, y=acc, col sep=comma] {data/q2_curve_Q2_d100_l1.csv};
+            \addlegendentry{$p = 1\%$, RTT 204 ms}
+            \addplot[gray, dashed, domain=0:640, samples=2] {0.9};
+            \addlegendentry{mục tiêu 90\%}
+        \end{axis}
+    \end{tikzpicture}
+    \caption{Độ chính xác của mô hình toàn cục theo thời gian thực, mỗi điểm là một vòng}
+    \label{fig:q2acc}
+\end{figure}
+
+\textbf{Mất gói kéo dài thời gian hội tụ.} Chỉ 0{,}5\% mất gói đã làm $T_{round}$ tăng 2{,}8 lần (từ 2{,}26 lên 6{,}22~s). Ở 5\%, vòng dài gấp 10{,}2 lần và thời gian để đạt 90\% tăng từ 32{,}5~s lên 317~s (Hình~\ref{fig:q2acc}: bốn đường cong có cùng hình dạng, chỉ bị kéo giãn theo trục thời gian). Thông lượng gộp pha upload chỉ còn 2{,}9~Mbps trên một link 100~Mbps. Tăng $p$ 10 lần (0{,}5 lên 5\%) làm $T_{down}$ tăng 4{,}1 lần, gần với tỉ lệ $\sqrt{10} \approx 3{,}2$ của công thức Mathis~\eqref{eq:mathis}: thông lượng mỗi luồng bị giới hạn bởi tần suất mất gói chứ không còn bởi băng thông.
+
+Mức tăng đo được (4{,}1 lần) lớn hơn tỉ lệ $\sqrt{10}$ của công thức Mathis. Công thức này bỏ qua timeout, trong khi ở $p$ lớn, việc mất nhiều đoạn trong cùng một cửa sổ, hoặc mất chính gói truyền lại, buộc TCP chờ hết RTO (tối thiểu 200~ms) rồi slow start lại từ đầu. Mất gói ở chiều ACK cũng làm cửa sổ tăng chậm hơn.
+
+\begin{table}[H]
+    \centering
+    \caption{Ảnh hưởng của độ trễ chặng WAN, 100~Mbps, $N = 4$ ($T_{round}$ và TTA tính bằng giây)}
+    \label{tab:q2delay}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{c c c c c c c}
+        \toprule
+        \multirow{2}{*}{$d_{WAN}$ (ms)} & \multirow{2}{*}{RTT (ms)} & \multicolumn{3}{c}{\textbf{Không mất gói}} & \multicolumn{2}{c}{\textbf{Mất gói 1\%}} \\
+        \cmidrule(lr){3-5} \cmidrule(lr){6-7}
+        & & $T_{round}$ & Truyền lại (\%) & TTA & $T_{round}$ & TTA \\
+        \midrule
+        5 & 14 & 1,82 & 0,00 & 25,5 & 3,73 & 51,1 \\
+        20 & 44 & 2,13 & 0,00 & 30,2 & 9,14 & 124,3 \\
+        50 & 104 & 6,21 & 2,19 & 84,1 & 17,76 & 238,4 \\
+        100 & 204 & 10,71 & 2,33 & 151,6 & 31,54 & 435,6 \\
+        \bottomrule
+    \end{tabular}}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}
+        \begin{axis}[
+            width=0.85\textwidth, height=7cm,
+            xlabel={RTT cơ sở (ms)}, ylabel={$T_{round}$ (s)},
+            xmin=0, xmax=215, ymin=0, xtick={14,44,104,204},
+            grid=major, grid style={gray!25},
+            legend pos=north west, legend cell align=left,
+        ]
+            \addplot[blue, mark=*, thick] coordinates {(14,1.823) (44,2.130) (104,6.209) (204,10.714)};
+            \addlegendentry{$p = 0$, giới hạn netem 200 gói}
+            \addplot[blue, mark=o, thick, dashed] coordinates {(44,2.119) (104,2.843) (204,4.342)};
+            \addlegendentry{$p = 0$, giới hạn đã sửa}
+            \addplot[red!70!black, mark=triangle*, thick] coordinates {(14,3.733) (44,9.135) (104,17.755) (204,31.539)};
+            \addlegendentry{$p = 1\%$}
+        \end{axis}
+    \end{tikzpicture}
+    \caption{Thời gian một vòng theo RTT chặng WAN, có và không có mất gói}
+    \label{fig:q2delay}
+\end{figure}
+
+\textbf{Độ trễ nhân lên tác hại của mất gói.} Với 1\% mất gói, tăng RTT từ 14 lên 204~ms làm $T_{round}$ tăng 8{,}4 lần (từ 3{,}73 lên 31{,}54~s), và thời gian tới 90\% tăng từ 51~s lên 436~s. Đây đúng là dự đoán của~\eqref{eq:mathis}: thông lượng TCP khi có mất gói tỉ lệ nghịch với RTT. So sánh với Q1 cho một con số dễ nhớ: ở RTT 44~ms, 1\% mất gói làm thời gian tới 90\% (124~s) tương đương với việc hạ băng thông sạch từ 100 xuống 10~Mbps (ước tính 119~s).
+
+\textbf{Cột không mất gói ở 50 và 100~ms: ảnh hưởng của cấu hình netem.} Khi $d_{WAN} \le 20$~ms, $T_{round}$ chỉ tăng từ 1{,}82 lên 2{,}13~s. Nhưng ở 50 và 100~ms nó nhảy lên 6{,}21 và 10{,}71~s, và pcap ghi nhận 2{,}2--2{,}3\% byte phải truyền lại dù netem không được đặt mất gói. Nguyên nhân nằm ở cách Mininet đặt hàng đợi: \nolinkurl{max_queue_size} là giới hạn số gói của netem, và netem tính cả những gói đang bị giữ lại để tạo trễ. Ở 100~Mbps, riêng phần này đã cần $B \cdot d_{WAN} / (8 \cdot 1514)$ gói, tức khoảng 166, 413 và 826 gói khi $d_{WAN}$ = 20, 50 và 100~ms. Với giới hạn 200 gói, đường 50~ms chỉ cho qua tối đa khoảng 48~Mbps và đường 100~ms khoảng 24~Mbps; phần vượt quá bị bỏ. Nhóm kiểm tra bằng một luồng UDP 60~Mbps, thấp hơn băng thông link: ở 20~ms không mất gói nào, ở 50~ms mất 25\%.
+
+Nhóm chạy lại ba cấu hình này với giới hạn bằng 200 cộng số gói đang bay, để hàng đợi tại link nghẽn thực sự còn 200 gói (Bảng~\ref{tab:qverify}). Lần chạy lại với giới hạn 200 cho kết quả cùng cỡ với Bảng~\ref{tab:q2delay}. Với giới hạn đã sửa, $T_{round}$ ở 50 và 100~ms chỉ còn 2{,}84 và 4{,}34~s.
+
+\begin{table}[H]
+    \centering
+    \caption{Chạy lại cấu hình không mất gói với hai giới hạn netem, 20 vòng, $N = 4$ (giây)}
+    \label{tab:qverify}
+    \begin{tabular}{c c c c c c c}
+        \toprule
+        \multirow{2}{*}{$d_{WAN}$ (ms)} & \multicolumn{3}{c}{\textbf{Giới hạn 200 gói}} & \multicolumn{3}{c}{\textbf{200 gói + gói đang bay}} \\
+        \cmidrule(lr){2-4} \cmidrule(lr){5-7}
+        & $T_{round}$ & đlc & TTA & $T_{round}$ & đlc & TTA \\
+        \midrule
+        20 & 2,10 & 0,06 & 29,7 & 2,12 & 0,07 & 29,9 \\
+        50 & 5,78 & 0,66 & 82,3 & 2,84 & 0,10 & 40,4 \\
+        100 & 11,39 & 2,16 & 171,2 & 4,34 & 0,23 & 61,3 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Log của các lần chạy lại nằm trong \nolinkurl{results/verify_queue/}, script là \nolinkurl{tools/verify_queue.py}. Vì vậy hai giá trị 6{,}21 và 10{,}71~s của Bảng~\ref{tab:q2delay} là giới hạn của công cụ giả lập, không được dùng để kết luận về đường WAN thật. Kết luận đúng cho cột này là: không mất gói, tăng RTT từ 44 lên 204~ms làm $T_{round}$ tăng khoảng 2 lần (2{,}12 lên 4{,}34~s), do slow start mất nhiều RTT hơn. Các cột có mất gói 1\% chưa được chạy lại. Ở đó thông lượng gộp pha upload chỉ 1{,}8--3{,}6~Mbps khi $d_{WAN}$ = 50 và 100~ms, thấp hơn nhiều mức 48 và 24~Mbps, nên ảnh hưởng của giới hạn này được kỳ vọng là nhỏ. Ở 20~ms, 10~MB mỗi khối (kịch bản K3), khoảng 166 trong 200 gói đã bị phần trễ chiếm, nên hàng đợi thực tại link nghẽn chỉ còn khoảng 34 gói; chênh lệch Edge--Cloud ở WAN 100~Mbps có thể bị phóng đại vì lý do này và cũng chưa được chạy lại.
+
+\textbf{Trả lời Q2.} Trên mạng biên có mất gói, sự hội tụ của FL theo thời gian thực bị quyết định bởi RTT và tỉ lệ mất gói (thời gian mỗi pha tỉ lệ với $RTT \cdot \sqrt{p}$ theo~\eqref{eq:mathis}), không còn bởi băng thông. Mô hình vẫn hội tụ sau đúng số vòng như cũ, nhưng 1\% mất gói trên đường 204~ms làm thời gian tới 90\% dài gấp 14 lần so với đường sạch 44~ms (436~s so với 30~s). Giữ RTT nhỏ (đặt nút tổng hợp gần) và giảm mất gói có giá trị hơn tăng băng thông, một khi băng thông đã vượt khoảng 20~Mbps.
+
+\subsubsection{Q3 -- Hiệu suất giao thức, overhead truyền thông và khả năng triển khai biên}
+Câu hỏi Q3 xét hai mặt: giao thức FLSync trên TCP tốn bao nhiêu byte ngoài trọng số mô hình, và các phương án triển khai tại biên (nén bản cập nhật, đặt nút tổng hợp tại Edge) cải thiện được bao nhiêu.
+
+\textbf{Overhead truyền thông đo từ pcap.} \texttt{pcap\_overhead.py} đọc pcap của các lần chạy Q2 và lấy góc nhìn phía gửi của từng chiều: chiều xuống trên \texttt{cloud-eth0}, chiều lên trên \texttt{r1-eth0}, trước khi gói đi vào chặng WAN có mất gói. Mỗi lần chạy phải chuyển $2 \times 4 \times 20 = 160$ bản trọng số, tức 192{,}7~MB dữ liệu hữu ích. Bảng~\ref{tab:q3ovh} cho tổng byte khung Ethernet thực tế trên dây và cách phân bổ.
+
+\begin{table}[H]
+    \centering
+    \caption{Overhead truyền thông của 20 vòng FedAvg, $N = 4$, 192{,}7~MB trọng số hữu ích}
+    \label{tab:q3ovh}
+    \small
+    \begin{tabular}{l c c c c c}
+        \toprule
+        \multirow{2}{*}{\textbf{Kịch bản}} & \textbf{Byte trên} & \textbf{Hiệu suất} & \textbf{Header} & \textbf{Riêng khung} & \textbf{Truyền} \\
+        & \textbf{dây (MB)} & \textbf{byte (\%)} & \textbf{L2--L4 (\%)} & \textbf{ACK (\%)} & \textbf{lại (\%)} \\
+        \midrule
+        $p = 0$, 20 ms & 206,3 & 93,40 & 6,60 & 2,33 & 0,00 \\
+        $p = 0{,}5\%$, 20 ms & 207,2 & 93,01 & 6,54 & 2,27 & 0,48 \\
+        $p = 1\%$, 20 ms & 208,3 & 92,50 & 6,57 & 2,30 & 1,00 \\
+        $p = 2\%$, 20 ms & 210,5 & 91,56 & 6,58 & 2,31 & 1,99 \\
+        $p = 3\%$, 20 ms & 212,8 & 90,56 & 6,66 & 2,39 & 2,99 \\
+        $p = 5\%$, 20 ms & 217,9 & 88,44 & 6,83 & 2,57 & 5,08 \\
+        $p = 0$, 50 ms & 210,6 & 91,48 & 6,48 & 2,20 & 2,19 \\
+        $p = 0$, 100 ms & 210,9 & 91,38 & 6,44 & 2,16 & 2,33 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Cột \emph{Header L2--L4} là phần byte trên dây không thuộc payload TCP, gồm cả header của khung ACK; cột \emph{Truyền lại} là tỉ lệ byte payload bị gửi lại, trung bình hai chiều. Hai dòng cuối ($p = 0$, 50 và 100~ms) có truyền lại là do giới hạn netem nêu ở Q2, không phải mất gói của đường truyền.
+
+Khi không mất gói, 93{,}4\% byte trên dây là trọng số mô hình. Phần còn lại gồm header Ethernet, IP, TCP của các khung dữ liệu (66 byte trên mỗi khung 1514 byte, khoảng 4{,}3\% byte trên dây, đúng như~\eqref{eq:eta}), khung ACK thuần theo chiều ngược lại (2{,}3\%) và header FLSync. Header FLSync gần như không đáng kể: mỗi lần chạy có 4 HELLO, $20 \times 4 \times 4 = 320$ thông điệp GLOBAL, ACK, UPDATE, ACK và 4 BYE. Tổng cộng $328 \times 20 \approx 6{,}6$~KB, tức 0{,}003\% của 206~MB. Bắt tay TCP cũng chỉ xảy ra một lần cho mỗi kết nối (8 gói SYN và SYN-ACK cho 4 kết nối), vì FLSync giữ kết nối qua mọi vòng.
+
+Con số 0{,}003\% chưa tính các tầng dưới. Mỗi header FLSync được gửi bằng một lời gọi \texttt{sendall()} riêng và đi trong một khung riêng dài $66 + 20 = 86$~byte. 328 khung như vậy là 28~KB, tức 0{,}014\% byte trên dây. ACK tầng ứng dụng vì thế gần như không tốn băng thông. Nó cũng không làm vòng dài thêm, vì client gửi ACK rồi bắt đầu train ngay mà không chờ phản hồi. Cái giá của nó là sai số đo: server chỉ biết client nhận xong sau khi ACK đi ngược về, nên $T_{down}$ dài hơn thực tế khoảng $R/2$ và $T_{up}$ ngắn hơn khoảng $R/2$ (2~ms ở biên; 7, 22, 52, 102~ms khi $d_{WAN}$ = 5, 20, 50, 100~ms). Hai sai số này triệt tiêu nhau trong $T_{round}$. Riêng ACK kết thúc vòng chỉ báo hiệu, không chặn vòng sau.
+
+\texttt{pcap\_overhead.py} tính overhead qua ba bước. Bước một, với mỗi chiều, script cộng chiều dài khung trên dây, payload TCP và các khung không có payload (ACK thuần, SYN, FIN), tại giao diện \emph{trước} chỗ mất gói. Bước hai, với mỗi luồng, số byte duy nhất là seq cao nhất trừ seq đầu tiên; payload vượt quá số này là byte truyền lại. Bước ba, hiệu suất byte là $2 N K_r S$ chia cho tổng byte trên dây, với $K_r = 20$ vòng. Có hai phép kiểm. Khi $p = 0$ và 20~ms, tỉ lệ truyền lại là 0{,}00\%; khi $p > 0$, tỉ lệ truyền lại mỗi chiều bằng tỉ lệ mất gói đã đặt, sai khác không quá 0{,}2 điểm phần trăm. Cách đếm này tính khung Ethernet không gồm preamble, FCS và khoảng cách khung; nếu tính thêm 24~byte mỗi khung thì hiệu suất sẽ thấp hơn bảng.
+
+Khi có mất gói, tỉ lệ byte truyền lại xấp xỉ đúng bằng tỉ lệ mất gói (0{,}48\% với $p = 0{,}5\%$, 5{,}08\% với $p = 5\%$). Điều này cho thấy TCP với SACK chỉ gửi lại đúng các đoạn bị mất chứ không gửi lại cả cửa sổ. Hiệu suất byte vì vậy chỉ giảm từ 93{,}4\% xuống 88{,}4\%. Đặt cạnh Q2, đây là điểm quan trọng nhất của Q3: ở $p = 5\%$, lượng byte chỉ tăng 5{,}6\% (206{,}3 lên 217{,}9~MB) nhưng thời gian vòng tăng 10 lần. Chi phí của mất gói trên mạng biên nằm ở \emph{thời gian chờ} do điều khiển tắc nghẽn và timeout, không nằm ở số byte. Ở $p = 0{,}5\%$ có thêm 2 gói SYN phải gửi lại; mất gói lúc bắt tay làm kết nối đó chậm ít nhất 1~s (RTO ban đầu của SYN), nhưng chỉ một lần trong cả 20 vòng.
+
+\textbf{Nén bản cập nhật: gửi toàn bộ mô hình so với gradient nén 1/10.} Phương án triển khai đầu tiên là giảm số byte cần gửi. Các kịch bản K2 (đo mạng thuần, khối 10~MB) so sánh gửi toàn bộ với gửi bản cập nhật nén 1/10 trên ba chỉ số: thời gian pha upload, thời gian cả vòng và RTT khi có tải.
+
+\textbf{Thời gian truyền chiều lên.} Bảng~\ref{tab:q2meas} và Hình~\ref{fig:q2} so sánh $T_{up}$ đo được khi gửi 10 MB và 1 MB, ở cả hai vị trí Aggregator (kịch bản K1, K2\_edge, K3\_cloud, K2\_cloud).
+
+\begin{table}[H]
+    \centering
+    \caption{Thời gian pha upload $T_{up}$ (giây) và hệ số giảm khi nén 1/10}
+    \label{tab:q2meas}
+    \begin{tabular}{c c c c c c c}
+        \toprule
+        \multirow{2}{*}{$N$} & \multicolumn{3}{c}{\textbf{Edge (RTT 4 ms)}} & \multicolumn{3}{c}{\textbf{Cloud (RTT 44 ms, 100 Mbps)}} \\
+        \cmidrule(lr){2-4} \cmidrule(lr){5-7}
+        & 10 MB & 1 MB & giảm & 10 MB & 1 MB & giảm \\
+        \midrule
+        2 & 1,755 & 0,259 & 6,8$\times$ & 2,733 & 0,798 & 3,4$\times$ \\
+        3 & 2,578 & 0,333 & 7,7$\times$ & 3,321 & 1,762 & 1,9$\times$ \\
+        4 & 3,374 & 0,481 & 7,0$\times$ & 4,975 & 1,518 & 3,3$\times$ \\
+        5 & 4,235 & 0,901 & 4,7$\times$ & 6,911 & 2,419 & 2,9$\times$ \\
+        6 & 5,214 & 1,424 & 3,7$\times$ & 7,112 & 3,117 & 2,3$\times$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}
+        \begin{axis}[
+            width=0.85\textwidth, height=7cm,
+            xlabel={Số Edge Node $N$}, ylabel={$T_{up}$ (s)},
+            xmin=1.8, xmax=6.2, xtick={2,...,6},
+            ymode=log, log basis y=10,
+            ytick={0.2,0.5,1,2,5,10}, yticklabels={0{,}2,0{,}5,1,2,5,10},
+            ymin=0.2, ymax=10,
+            grid=major, grid style={gray!25},
+            legend style={at={(0.5,-0.3)}, anchor=north, legend columns=2}, legend cell align=left,
+        ]
+            \addplot[thick, blue, mark=*] table[x=n, y=t_up, col sep=comma] {data/measured_K1_edge_full.csv};
+            \addlegendentry{Edge, 10 MB}
+            \addplot[thick, blue, mark=o, dashed] table[x=n, y=t_up, col sep=comma] {data/measured_K2_edge_comp.csv};
+            \addlegendentry{Edge, 1 MB}
+            \addplot[thick, orange, mark=square*] table[x=n, y=t_up, col sep=comma] {data/measured_K3_cloud_full.csv};
+            \addlegendentry{Cloud, 10 MB}
+            \addplot[thick, orange, mark=square, dashed] table[x=n, y=t_up, col sep=comma] {data/measured_K2_cloud_comp.csv};
+            \addlegendentry{Cloud, 1 MB}
+        \end{axis}
+    \end{tikzpicture}
+    \caption{Thời gian upload khi gửi toàn bộ mô hình và gradient nén (trục tung logarit)}
+    \label{fig:q2}
+\end{figure}
+
+\textbf{Nhận xét.} Nén 10 lần nhưng $T_{up}$ chỉ giảm 3{,}7--7{,}7 lần ở biên và 1{,}9--3{,}4 lần qua WAN. Có hai nguyên nhân.
+
+Thứ nhất là slow start. Ở biên, RTT chỉ 4~ms và slow start kết thúc sau 2 RTT, nên gần như toàn bộ thời gian là $d_{trans}$, tỉ lệ thuận với kích thước; đây là lý do mức giảm ở biên cao hơn. Qua WAN, theo~\eqref{eq:kstar}, một luồng cần khoảng 6 RTT (264~ms) slow start trước khi cửa sổ đủ lớn, trong khi $d_{trans}$ của 1 MB ở 100 Mbps chỉ khoảng 84~ms. Nén làm giảm $d_{trans}$ nhưng không giảm được số RTT, nên mức giảm qua WAN thấp hơn hẳn.
+
+Thứ hai là cách đo. Theo~\eqref{eq:tupnet}, $T_{up}$ chứa cả $\Delta$, mà $\Delta$ không phụ thuộc kích thước bản cập nhật. Khi bản cập nhật chỉ còn 1~MB, $\Delta$ chiếm phần lớn $T_{up}$: 1{,}30 trên 1{,}42~s ở biên và 2{,}82 trên 3{,}12~s ở Cloud, với $N = 6$. Vì vậy mức giảm \emph{giảm dần} khi $N$ tăng (ở biên từ 6{,}8 xuống 3{,}7 lần). Cận dưới $T_{up}^{*}$ của bản 1~MB chỉ là 0{,}09--0{,}15~s ở biên và 0{,}28--0{,}34~s ở Cloud, gần như không đổi theo $N$; đó là thời gian để riêng nút cuối gửi xong 1~MB. Mức giảm thật do nén nằm giữa hai cận này. Nói cách khác, khi chiều lên đã được nén, sự không đều của pha tải xuống trở thành yếu tố quyết định thời gian chờ của Aggregator.
+
+Với thiết kế hệ thống, điều này có nghĩa là nén gradient có lợi nhất khi link chậm hoặc nhiều nút cùng chia link. Với ít nút qua WAN có RTT lớn, cần kết hợp thêm biện pháp ở tầng giao vận, ví dụ tắt \nolinkurl{tcp_slow_start_after_idle} để giữ $cwnd$ giữa các vòng, hoặc tăng IW.
+
+\textbf{Thời gian vòng khi chỉ nén chiều lên.} Vì mô hình toàn cục phát xuống vẫn là 10 MB, lợi ích trên toàn vòng nhỏ hơn lợi ích trên pha upload. Với $N = 6$: tại biên $T_{round}$ giảm từ 9{,}94~s (K1) xuống 6{,}17~s (K2\_edge), tức giảm 38\%; tại Cloud 100 Mbps giảm từ 11{,}80~s (K3\_cloud) xuống 7{,}52~s (K2\_cloud), tức giảm 36\%. Lúc này pha phát xuống ($T_{down} \approx 5$--6~s) chiếm phần lớn vòng, gợi ý rằng bước tiếp theo nên là nén cả chiều xuống hoặc dùng multicast.
+
+\textbf{RTT khi có tải.} \texttt{ping -i 0.2} chạy suốt lần đo nên giá trị trung bình trộn cả khoảng nghỉ và hai chiều truyền (Bảng~\ref{tab:q2rtt}). Con số này chỉ cho biết mức trễ mà một ứng dụng khác dùng chung mạng phải chịu tính trung bình; nó không phải RTT của riêng pha nào.
+
+\begin{table}[H]
+    \centering
+    \caption{RTT từ h1 tới Aggregator tính trên toàn bộ lần đo, $N = 6$ (ms)}
+    \label{tab:q2rtt}
+    \begin{tabular}{l c c c}
+        \toprule
+        \textbf{Kịch bản} & \textbf{RTT rảnh} & \textbf{RTT trung bình} & \textbf{RTT lớn nhất} \\
+        \midrule
+        Edge, 10 MB (K1) & 4,3 & 32,2 & 58,5 \\
+        Edge, 1 MB (K2) & 4,3 & 35,9 & 54,1 \\
+        Cloud, 10 MB (K3) & 44,5 & 62,0 & 95,3 \\
+        Cloud, 1 MB (K2) & 44,5 & 63,3 & 92,9 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Để tách theo pha, nhóm dùng số thứ tự gói: gói ping thứ $k$ được gửi khoảng $0{,}2k$ giây sau khi \texttt{ping} khởi động. Dãy này được căn với log vòng (\nolinkurl{tools/phase_rtt.py}) bằng cách chọn độ lệch thời gian (trong khoảng 0{,}7--3{,}5~s) làm RTT ở khoảng nghỉ thấp nhất so với hai pha truyền. Chỉ các gói chắc chắn thuộc một pha được tính: pha xuống lấy tới lúc nút đầu tiên nhận xong, khoảng nghỉ lấy khi mọi nút đang train, pha lên lấy từ lúc nút cuối train xong; phần chồng lấn bị bỏ. Cách này chỉ dùng được khi $\Delta < 1$~s, nên không áp dụng cho $N = 6$. Việc căn này là ước lượng: khoảng nghỉ mỗi vòng chỉ có vài gói ping (4--35 gói mỗi lần đo). Hai dấu hiệu cho thấy nó hợp lý: độ lệch tìm được nằm trong 0{,}75--1{,}55~s ở mọi kịch bản, gần với 1~s mà script chờ giữa lúc bật \texttt{ping} và lúc chạy client, và RTT khoảng nghỉ sát với RTT rảnh.
+
+\begin{table}[H]
+    \centering
+    \caption{RTT tách theo pha: trung vị, trong ngoặc là lớn nhất (ms)}
+    \label{tab:rttphase}
+    \begin{tabular}{l c c c c}
+        \toprule
+        \textbf{Kịch bản} & \textbf{RTT rảnh} & \textbf{Tải xuống} & \textbf{Khoảng nghỉ} & \textbf{Upload} \\
+        \midrule
+        K1 Edge, $N = 2$ & 4,3 & 70,0 (114) & 4,4 & 24,3 (32) \\
+        K1 Edge, $N = 3$ & 4,3 & 58,6 (71) & 4,6 & 24,4 (33) \\
+        K1 Edge, $N = 4$ & 4,3 & 50,0 (56) & 4,9 & 23,8 (29) \\
+        K1 Edge, $N = 5$ & 4,3 & 49,2 (54) & 5,2 & 23,6 (53) \\
+        K3 Cloud 100M, $N = 2$ & 44,5 & 86,7 (141) & 45,7 & 44,4 (88) \\
+        K3 Cloud 20M, $N = 2$ & 44,5 & 132 (145) & 45,5 & 132 (146) \\
+        Q1, 10 Mbps, $N = 4$ & 44,5 & 240 (818) & 44,4 & 197 (719) \\
+        Q1, 5 Mbps, $N = 4$ & 44,5 & 447 (1352) & 44,5 & 397 (887) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Ở pha upload của K1, RTT trung vị khoảng 24~ms, nằm trong mức của một hàng đợi 200 gói (tối đa 24~ms theo~\eqref{eq:dqueue}) cộng RTT rảnh 4{,}3~ms; giá trị lớn nhất 29--33~ms với $N \le 4$ nhỉnh hơn mức này một chút. Ở pha tải xuống, RTT lên tới 49--70~ms dù lúc đó chưa có luồng upload nào. Một hàng đợi đầy không đủ giải thích mức này, và giả thuyết ``hàng đợi hai chiều cùng đầy'' bị loại. Trễ thêm phải nằm trên chính chiều tải xuống, nhưng nhóm chưa xác định được vị trí. Nén chiều lên không làm giảm RTT trung bình toàn lần đo, vì phần lớn thời gian của vòng là pha tải xuống 10~MB.
+
+\textbf{Đặt nút tổng hợp tại Edge hay tại Cloud.} Phương án thứ hai là đặt nút tổng hợp ngay trong vùng biên. Hình~\ref{fig:q3} và Bảng~\ref{tab:q3} so sánh $T_{round}$ của kịch bản K1 (Edge) với K3 (Cloud, WAN 100 và 20~Mbps), khối 10~MB mỗi chiều.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}
+        \begin{axis}[
+            width=0.85\textwidth, height=7cm,
+            xlabel={Số Edge Node $N$}, ylabel={$T_{round}$ (s)},
+            xmin=1.8, xmax=6.2, xtick={2,3,4,5,6},
+            ymin=0, grid=major, grid style={gray!25},
+            legend style={at={(0.5,-0.25)}, anchor=north, legend columns=1}, legend cell align=left,
+        ]
+            \addplot[thick, blue, mark=*] table[x=n, y=t_round, col sep=comma] {data/measured_K1_edge_full.csv};
+            \addlegendentry{Edge (RTT 4 ms, 100 Mbps)}
+            \addplot[thick, orange, mark=square*] table[x=n, y=t_round, col sep=comma] {data/measured_K3_cloud_full.csv};
+            \addlegendentry{Cloud (RTT 44 ms, 100 Mbps)}
+            \addplot[thick, red!70!black, mark=triangle*] table[x=n, y=t_round, col sep=comma] {data/measured_K3_cloud20_full.csv};
+            \addlegendentry{Cloud (RTT 44 ms, 20 Mbps)}
+        \end{axis}
+    \end{tikzpicture}
+    \caption{Thời gian một vòng theo vị trí Aggregator, 10 MB mỗi chiều}
+    \label{fig:q3}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+    \caption{$T_{round}$ theo vị trí Aggregator (giây), 10 MB mỗi chiều}
+    \label{tab:q3}
+    \begin{tabular}{c c c c c c}
+        \toprule
+        $N$ & \textbf{Edge} & \textbf{Cloud 100M} & \textbf{chênh với Edge} & \textbf{Cloud 20M} & \textbf{Cloud 20M / Edge} \\
+        \midrule
+        2 & 4,446 & 5,480 & 1,034 & 17,540 & 3,9$\times$ \\
+        3 & 5,882 & 6,312 & 0,430 & 25,035 & 4,3$\times$ \\
+        4 & 7,333 & 8,361 & 1,028 & 33,137 & 4,5$\times$ \\
+        5 & 8,566 & 10,090 & 1,524 & 40,457 & 4,7$\times$ \\
+        6 & 9,943 & 11,803 & 1,860 & 48,382 & 4,9$\times$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{Nhận xét.} Khi băng thông WAN bằng băng thông nhánh biên (100 Mbps), Cloud chỉ chậm hơn Edge 0{,}43--1{,}86~s mỗi vòng, tức 7--23\% $T_{round}$. Phần chênh này có hai nguồn. Nguồn thứ nhất là slow start dài hơn: theo~\eqref{eq:kstar}, 6 RTT $\times$ 44~ms thay vì 2 RTT $\times$ 4~ms, lặp lại ở cả hai pha. Nguồn thứ hai là mất gói tại hàng đợi WAN: bản bắt gói K3 có 338 gói truyền lại, CUBIC giảm cửa sổ rồi tăng lại chậm theo RTT lớn, và chênh lệch có xu hướng \emph{tăng} theo $N$. Phần này bị cấu hình netem phóng đại, vì hàng đợi thực chỉ còn khoảng 34 gói (Bảng~\ref{tab:qverify} và đoạn sau nó), nên 0{,}43--1{,}86~s là mức của topo này chứ chưa phải của một đường WAN thật. Bắt tay chỉ xảy ra một lần khi kết nối nên không góp vào các vòng sau.
+
+Khi WAN chỉ có 20 Mbps, Cloud chậm hơn Edge 3{,}9--4{,}9 lần, và khoảng cách tăng theo $N$. $T_{down}$ của Cloud 20M tăng khoảng 4{,}5~s mỗi nút, gần với thời gian truyền một khối 10~MB ở $\eta \cdot 20 = 19{,}1$~Mbps (khoảng 4{,}2~s). Lúc này băng thông WAN là điểm nghẽn, còn phần chênh do RTT trở nên không đáng kể.
+
+Như vậy lợi ích của tổng hợp tại biên phụ thuộc vào băng thông chặng WAN: nếu WAN đủ rộng, lợi ích đối với khối 10 MB là nhỏ và chủ yếu do slow start và hàng đợi; nếu WAN hẹp hơn LAN biên, tổng hợp tại biên rút ngắn vòng nhiều lần. Đây cũng là lập luận của kiến trúc phân cấp \cite{liu2020hierfavg}: tổng hợp nhiều lần ở biên, chỉ gửi một bản lên cloud, thay vì $N$ bản.
+
+\textbf{Khả năng triển khai tại biên.} Gộp kết quả của cả ba câu hỏi, nhóm rút ra các khuyến nghị sau khi đưa FL ra vùng biên:
+\begin{itemize}
+    \item \emph{Đặt nút tổng hợp tại biên khi đường lên cloud hẹp, xa hoặc có mất gói.} Trên WAN sạch 100~Mbps, Edge chỉ nhanh hơn Cloud 0{,}4--1{,}9~s mỗi vòng. Nhưng khi WAN 20~Mbps, Cloud chậm hơn 4{,}9 lần; khi có 1\% mất gói, thời gian tới 90\% ở RTT 14~ms (51~s) chỉ bằng khoảng 1/8,5 so với ở RTT 204~ms (436~s). Kiến trúc phân cấp \cite{liu2020hierfavg} tận dụng đúng điểm này.
+    \item \emph{Nén bản cập nhật khi băng thông là điểm nghẽn.} Nén 1/10 chiều lên rút ngắn vòng 36--38\% ở $N = 6$. Khi pha tải xuống còn nguyên 10~MB, nó trở thành phần chiếm ưu thế; cần nén cả chiều xuống để có thêm lợi ích.
+    \item \emph{Giao thức tối giản trên TCP là đủ nhẹ.} Overhead 6{,}6\% gần như hoàn toàn đến từ header TCP/IP/Ethernet và ACK của TCP; FLSync chỉ góp 0{,}014\% kể cả header tầng dưới. Nhóm chưa đo gRPC và MQTT, nên chỉ kết luận được rằng phần ứng dụng của FLSync không còn gì đáng kể để giảm, không kết luận được hai giao thức kia tốn thêm bao nhiêu.
+    \item \emph{Cấu hình tầng giao vận và hàng đợi quan trọng hơn giao thức ứng dụng.} Slow start lặp lại mỗi vòng và mất gói trên đường xa (Q2) gây chậm nhiều hơn mọi chi phí header; bufferbloat ở đường hẹp (Q1) làm RTT tăng tới 2~s. Hướng nên thử là tắt \nolinkurl{tcp_slow_start_after_idle} cho kết nối FL, dùng AQM, và thuật toán điều khiển tắc nghẽn ít nhạy với mất gói ngẫu nhiên như BBR.
+    \item \emph{Mở rộng số nút cần mở rộng băng thông vào nút tổng hợp.} Giao diện mạng của nút tổng hợp là điểm nghẽn (Q1, kịch bản K1), nên số nút tăng thì phải tăng băng thông tại đó hoặc chia tải cho nhiều nút tổng hợp.
+\end{itemize}
+
+\subsubsection{Bắt và phân tích gói tin bằng Wireshark}
+Gói được bắt trên giao diện của nút tổng hợp (\texttt{agg-eth0} hoặc \texttt{cloud-eth0}), chỉ lấy 96 byte đầu mỗi gói để file nhỏ:
+\codesnap{tcpdump}
+Script \texttt{run\_experiments.py} tự tắt TSO/GSO/GRO trước khi bắt (Mục~\ref{sec:1-5}).
+
+Nhóm bắt gói cho hai kịch bản với $N = 4$ và 3 vòng: K1 trên \texttt{agg-eth0}, K3 (WAN 100 Mbps) đồng thời trên \texttt{cloud-eth0}, \texttt{r1-eth0} và \texttt{r1-eth1}. Mỗi file khoảng 31 MB, nằm trong \texttt{results/pcap/}. $T_{round}$ của lần chạy này là 6{,}8--7{,}6~s với K1 và 7{,}8--11{,}9~s với K3, cùng khoảng với số đo ở Bảng~\ref{tab:q3}. Do cổng 5000 trùng cổng mặc định của giao thức GSM IPA, Wireshark được mở với tuỳ chọn \texttt{-{}-disable-protocol gsm\_ipa} để phần tải tin hiện đúng là \texttt{Data}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{Images/ws_syn.png}
+    \caption{Bắt tay ba bước giữa h1 và Edge Aggregator (K1, gói SYN số 2)}
+    \label{fig:ws-syn}
+\end{figure}
+\textbf{Bắt tay và kích thước đoạn.} Gói SYN của \texttt{h1} mang MSS 1460, SACK permitted, Timestamps và Window scale 9 (nhân 512). SYN-ACK của Aggregator được gửi lại sau khoảng 1~ms, với cùng các tuỳ chọn. Gói số 11 là thông điệp HELLO dài 20 byte, gửi ngay sau ACK của bắt tay. Gần như mọi đoạn có dữ liệu dài 1448 byte, tức $1460 - 12$ byte tuỳ chọn Timestamps, đúng như giả thiết khi tính $\eta$ ở~\eqref{eq:eta}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{Images/ws_hdr.png}
+    \caption{Header FLSync của thông điệp GLOBAL vòng 1 gửi tới h1 (K1, gói số 31)}
+    \label{fig:ws-hdr}
+\end{figure}
+\textbf{Header FLSync.} Vì \texttt{TCP\_NODELAY} được bật và header được gửi bằng một lời gọi \texttt{sendall()} riêng, 20 byte header đi trong một đoạn TCP riêng: \texttt{46 4C 53 59} (magic), \texttt{01} (version), \texttt{02} (GLOBAL), \texttt{00 00 00 01} (vòng 1), \texttt{00 00} (node 0, tức server), \texttt{00 00 00 00 00 98 96 80} (length $= 10\,000\,000$). Các đoạn tải tin sau đó đều dài 1448 byte (19\,472 trên 19\,486 đoạn có dữ liệu trong 30\,000 gói đầu của file).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{Images/ws_stevens.png}
+    \caption{Biểu đồ Stevens của luồng cloud $\rightarrow$ h1 trong 0{,}7~s đầu vòng 2 (K3, WAN 100 Mbps, $N = 4$)}
+    \label{fig:ws-stevens}
+\end{figure}
+\textbf{Slow start lặp lại ở mỗi vòng.} Trong 0{,}7~s đầu vòng 2 của luồng \texttt{cloud} $\rightarrow$ \texttt{h1} (Hình~\ref{fig:ws-stevens}), dữ liệu đi theo từng loạt cách nhau 45--51~ms, tức một RTT. Số gói mỗi loạt là 10, 18, 38, 76, 110, rồi giữ ở 115--121 gói. Loạt đầu 10 gói khớp với IW = 10 \cite{rfc6928}, và kích thước loạt gần gấp đôi sau mỗi RTT. Như vậy dù kết nối TCP được giữ từ vòng 1, sau 1~s nghỉ huấn luyện $cwnd$ bị đặt lại và luồng phải qua 4 RTT slow start, đúng với phân tích ở Mục~\ref{sec:1-3} về \nolinkurl{tcp_slow_start_after_idle}. Số RTT slow start (4) ít hơn con số khoảng 6 RTT tính cho một luồng đơn, vì với $N = 4$ mỗi luồng chỉ cần lấp đầy 1/4 BDP; kích thước loạt ổn định khoảng 170~KB mỗi RTT tương ứng khoảng 29 Mbps, gần phần chia đều $95/4$ Mbps.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{Images/ws_io.png}
+    \caption{I/O Graph của bốn luồng cùng chia link tới Aggregator (K1, $N = 4$, khoảng 1~s)}
+    \label{fig:ws-io}
+\end{figure}
+\textbf{Chia băng thông giữa các luồng.} Theo \texttt{tshark -z io,stat,1}, tổng tải tin trên \texttt{agg-eth0} giữ ở khoảng 11{,}8 MB/s (khoảng 94--95 Mbps) trong mọi giây có truyền, trừ các giây rơi vào khoảng nghỉ huấn luyện. Nhưng phần của từng luồng dao động mạnh từ 0 đến 8{,}2 MB/s, trong khi phần chia đều chỉ khoảng 2{,}95 MB/s (Hình~\ref{fig:ws-io}). Ở khoảng thời gian 1~s, các luồng không chia đều $B/N$: có lúc một luồng chiếm gần hết link trong khi luồng khác gần như dừng. Trong 15 giây mà link bão hoà (trên 10{,}5 MB/s), chỉ số công bằng Jain của bốn luồng K1 trung bình là 0{,}88, thấp nhất 0{,}61; ở K3 là 0{,}79 và thấp nhất 0{,}33 (9 giây). Hậu quả rõ nhất là ở K3: trong vòng 1 và vòng 2, nút h3 mất 6{,}4 và 7{,}0~s để gửi 10~MB, trong khi ba nút còn lại mất 1{,}1--2{,}2~s. Cả vòng phải chờ một luồng (11{,}9~s ở vòng 2 so với 7{,}8~s ở vòng 3), dù bốn nút giống hệt nhau về phần cứng và thời gian train. Đây là straggler do TCP tạo ra, và là nguồn gốc của $\Delta$ trong~\eqref{eq:skew}.
+
+\textbf{Mất gói tại hàng đợi.} Wireshark đánh dấu 343 gói \emph{TCP Retransmission} trên \texttt{agg-eth0} (K1) và 338 gói trên \texttt{cloud-eth0} (K3), trên tổng khoảng 254\,000 gói mỗi file (khoảng 0{,}13\%). Trên I/O Graph, cột \emph{TCP Errors} cao nhất rơi vào giây thứ 11, cùng lúc một luồng tăng vọt lên khoảng 9 kgói/s. Như vậy hàng đợi 200 gói có tràn, và mất gói xảy ra theo đợt khi một luồng tăng tốc đột ngột. Riêng loạt slow start vòng 2 ở Hình~\ref{fig:ws-stevens} không có gói truyền lại nào.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{Images/ws_router.png}
+    \caption{Cùng một gói trước (r1-eth1, trái) và sau (r1-eth0, phải) khi đi qua Edge Gateway r1}
+    \label{fig:ws-router}
+\end{figure}
+\textbf{Gói đi qua Edge Gateway.} Hai bản bắt có cùng Identification \texttt{0xde9d}, cùng địa chỉ IP nguồn và đích. Router giảm TTL từ 64 xuống 63, tính lại Header Checksum (\texttt{0x444a} thành \texttt{0x454a}), và thay cả hai địa chỉ MAC: trên mạng cloud khung đi từ \texttt{cloud} (\texttt{00:00:00:00:00:02}) tới \texttt{r1-eth1}; trên mạng biên khung đi từ \texttt{r1-eth0} (\texttt{00:00:00:00:00:09}) tới \texttt{h1} (\texttt{00:00:00:00:00:03}). Kết quả này khớp với phân tích tầng mạng và tầng liên kết ở Mục~\ref{sec:2-3} và Mục~\ref{sec:2-4}.
+
+\textbf{Truyền lại khi có mất gói ngẫu nhiên.} Ở các lần chạy Q2, pcap được bắt đồng thời trên \texttt{cloud-eth0} và \texttt{r1-eth0}, tức phía gửi của chiều xuống và chiều lên. \texttt{pcap\_overhead.py} đếm được 1\,332 khung dữ liệu gửi lại ở $p = 1\%$ và 7\,144 khung ở $p = 5\%$; tỉ lệ byte truyền lại khớp với tỉ lệ mất gói đặt cho netem (Bảng~\ref{tab:q3ovh}). Byte truyền lại được tính bằng tổng payload đã gửi trừ đi số byte duy nhất của mỗi luồng (seq cao nhất trừ seq đầu tiên), thay vì xét từng gói có seq thấp hơn mức đã gửi. Lý do là nhóm phát hiện thứ tự gói trong file bắt trên veth của WSL đôi khi bị đảo nhẹ: cách xét từng gói đếm nhầm 26 khung truyền lại trong một lần chạy không mất gói, trong khi tổng payload của lần chạy đó khớp đúng từng byte với số byte giao thức phải gửi.
+
+\subsubsection{Đánh giá tổng hợp}
+Bảng~\ref{tab:summary} tóm tắt kết quả đo cho ba câu hỏi và cơ chế TCP giải thích từng kết quả; các cơ chế này đều được quan sát trực tiếp trên pcap.
+
+\begin{table}[H]
+    \centering
+    \caption{Tóm tắt kết quả cho ba câu hỏi nghiên cứu}
+    \label{tab:summary}
+    \begin{tabularx}{\textwidth}{c >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+        \toprule
+        \textbf{Câu hỏi} & \textbf{Kết quả đo} & \textbf{Giải thích} \\
+        \midrule
+        Q1 & $T_{round}$ tỉ lệ nghịch với băng thông khi $B \le 20$~Mbps: 77{,}8~s ở 1~Mbps, 8{,}5~s ở 10~Mbps, 2{,}3~s ở 100~Mbps. RTT khi có tải lên 2~s ở 1~Mbps (bufferbloat). Với băng thông cố định, mỗi Edge Node thêm vào làm vòng dài thêm khoảng 1{,}37~s (khối 10~MB) & Khi $B \le 20$~Mbps, pha tải xuống dùng gần hết băng thông ($B \cdot T_{down} \approx 8NS/\eta$). Link vào Aggregator bão hoà, mỗi nút chỉ nhận $B/N$. Ở 50~Mbps các luồng cùng slow start làm tràn hàng đợi \\
+        \midrule
+        Q2 & Độ chính xác theo vòng không đổi (90\% ở vòng 14 trong cả 14 lần chạy). Thời gian tới 90\% tăng từ 32{,}5~s lên 317~s khi mất gói từ 0 lên 5\%, và từ 51~s lên 436~s khi RTT từ 14 lên 204~ms với 1\% mất gói & TCP truyền lại đủ nên mô hình không sai lệch; thông lượng giảm theo $\sqrt{p}$ và RTT đúng xu hướng công thức Mathis, chậm hơn nữa do timeout. Cột không mất gói ở RTT 104 và 204~ms bị giới hạn netem làm sai; chạy lại cho 2{,}84 và 4{,}34~s \\
+        \midrule
+        Q3 & Hiệu suất byte 93{,}4\% (header dữ liệu 4{,}3\%, ACK 2{,}3\%, FLSync 0{,}003\%), còn 88{,}4\% khi mất 5\%. Nén 1/10 chiều lên giảm $T_{round}$ 36--38\%. Edge nhanh hơn Cloud 4{,}9 lần khi WAN 20~Mbps, 0{,}4--1{,}9~s mỗi vòng khi WAN 100~Mbps & Byte truyền lại xấp xỉ tỉ lệ mất gói (SACK). Nén không giảm số RTT slow start, và các luồng tải xuống kết thúc lệch nhau. Chênh lệch Edge--Cloud tăng theo $N$ do mất gói tại hàng đợi WAN \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+%=====================================================================
 \subsection{Kết luận chương}
-Một vòng FL đồng bộ dồn $2NS$ byte qua giao diện của nút tổng hợp. Với khối lớn, thời gian vòng chủ yếu do $d_{trans}$ trên link nghẽn và tăng tuyến tính theo $N$. Với khối nhỏ hoặc RTT lớn, slow start (lặp lại mỗi vòng do khoảng nghỉ huấn luyện) chiếm từ một phần tư tới phần lớn thời gian truyền. Chương tiếp theo thiết kế topo và giao thức để đo các hiệu ứng này.
+Chương này đã xây dựng và đánh giá một hệ thống FL hoàn chỉnh trên Mininet: topo Edge--Cloud có Edge Gateway (router kiêm firewall) và chặng WAN cấu hình được băng thông, độ trễ, mất gói; giao thức FLSync trên TCP có ACK tầng ứng dụng để đo từng pha; mạng nơ-ron MLP 1{,}2~MB huấn luyện bằng SGD và tổng hợp bằng FedAvg; và một chuỗi đo tự động từ \texttt{run\_experiments.py} tới các bảng trong \texttt{data/}. Kết quả cho thấy: (Q1) khi băng thông biên dưới khoảng 20~Mbps, thời gian vòng tỉ lệ nghịch với băng thông và hàng đợi gây bufferbloat tới hàng giây; (Q2) mất gói và độ trễ không làm sai lệch mô hình nhưng kéo dài thời gian hội tụ tới 10--14 lần, theo đúng quan hệ của công thức Mathis; (Q3) giao thức chỉ tốn khoảng 6{,}6\% byte, và chi phí thật của mạng biên nằm ở thời gian chờ do điều khiển tắc nghẽn, nên đặt nút tổng hợp gần, nén bản cập nhật và cấu hình đúng TCP, hàng đợi có tác dụng hơn tối ưu giao thức ứng dụng.
 
 \cleardoublepage
