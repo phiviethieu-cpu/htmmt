@@ -4,11 +4,13 @@
   Mạng biên 10.0.1.0/24                                   Mạng cloud 10.0.2.0/24
   h1..hN --(100M,1ms)-- s1 --(100M,1ms)-- agg (Edge Aggregator, 10.0.1.100)
                          |
-                         +--(100M)-- r1 --(BW_WAN,20ms)-- s2 --(100M,1ms)-- cloud (10.0.2.200)
+                         +--(100M)-- r1 --(BW_WAN, DELAY, LOSS)-- s2 --(100M,1ms)-- cloud (10.0.2.200)
                               Edge Gateway: router + firewall iptables
                               r1-eth0 10.0.1.254, r1-eth1 10.0.2.254
 
-Chạy thử tương tác:  sudo python3 topo.py --n 4
+Chạy thử tương tác:  sudo python3 topo.py --n 4 --bw-wan 10 --delay 50ms --loss 1
+Chặng WAN là chặng biên-cloud: BW_WAN (Mbps), DELAY (một chiều) và LOSS (% mỗi chiều)
+được netem/HTB áp lên cả hai đầu link r1-s2.
 """
 import argparse
 
@@ -42,7 +44,7 @@ class LinuxRouter(Node):
 
 
 class EdgeCloudTopo(Topo):
-    def build(self, n=6, bw_wan=100, wan_delay="20ms", queue=200):
+    def build(self, n=6, bw_wan=100, wan_delay="20ms", loss=0, queue=200):
         s1 = self.addSwitch("s1")   # Edge Switch
         s2 = self.addSwitch("s2")   # switch phía cloud
         r1 = self.addNode("r1", cls=LinuxRouter, ip="10.0.1.254/24")
@@ -56,7 +58,7 @@ class EdgeCloudTopo(Topo):
         self.addLink(r1, s1, intfName1="r1-eth0", params1={"ip": "10.0.1.254/24"},
                      bw=100, max_queue_size=queue)
         self.addLink(r1, s2, intfName1="r1-eth1", params1={"ip": "10.0.2.254/24"},
-                     bw=bw_wan, delay=wan_delay, max_queue_size=queue)
+                     bw=bw_wan, delay=wan_delay, loss=loss or None, max_queue_size=queue)
         self.addLink(s2, cloud, bw=100, delay="1ms", max_queue_size=queue)
 
 
@@ -70,9 +72,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=6)
     ap.add_argument("--bw-wan", type=float, default=100)
+    ap.add_argument("--delay", default="20ms", help="độ trễ một chiều chặng WAN")
+    ap.add_argument("--loss", type=float, default=0, help="tỉ lệ mất gói chặng WAN, %%")
     a = ap.parse_args()
     setLogLevel("info")
-    net = make_net(n=a.n, bw_wan=a.bw_wan)
+    net = make_net(n=a.n, bw_wan=a.bw_wan, wan_delay=a.delay, loss=a.loss)
     net.start()
     CLI(net)
     net.stop()

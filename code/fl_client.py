@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Edge Node: nhận mô hình toàn cục, "huấn luyện" bằng sleep, gửi bản cập nhật.
+"""Edge Node: nhận mô hình toàn cục, huấn luyện cục bộ, gửi bản cập nhật.
 
-Ví dụ: python3 fl_client.py --server 10.0.0.100 --id 1 --size 10000000 --train 1.0
---size là kích thước bản cập nhật gửi lên (1000000 cho kịch bản nén 1/10).
+Hai chế độ:
+  Đo mạng thuần : python3 fl_client.py --server 10.0.1.100 --id 1 --size 10000000 --train 1.0
+                  ("huấn luyện" bằng sleep; --size là kích thước bản cập nhật, 1000000 khi nén 1/10)
+  FedAvg thật   : python3 fl_client.py --server 10.0.2.200 --id 1 --clients 4 --fedavg
+                  (SGD trên phần dữ liệu của node, rồi đệm cho đủ --train giây để T_train cố định)
 """
 import argparse
 import socket
+import sys
 import time
 
 from flproto import ACK, BYE, GLOBAL, HELLO, UPDATE, recv_msg, send_msg
@@ -18,7 +22,14 @@ def main():
     ap.add_argument("--id", type=int, required=True)
     ap.add_argument("--size", type=int, default=10_000_000)
     ap.add_argument("--train", type=float, default=1.0)
+    ap.add_argument("--clients", type=int, default=1, help="tổng số node, để chia dữ liệu")
+    ap.add_argument("--fedavg", action="store_true")
     a = ap.parse_args()
+
+    if a.fedavg:
+        import model
+        (x, y), _ = model.make_dataset()
+        x, y = model.partition(x, y, a.clients, a.id)
 
     for _ in range(50):  # server có thể chưa listen kịp
         try:
@@ -32,13 +43,23 @@ def main():
     send_msg(s, HELLO, 0, a.id)
 
     while True:
-        mtype, rnd, _, _ = recv_msg(s)
+        mtype, rnd, _, _, data = recv_msg(s, keep=a.fedavg)
         if mtype == BYE:
             break
         if mtype == GLOBAL:
             send_msg(s, ACK, rnd, a.id)
-            time.sleep(a.train)          # mô phỏng huấn luyện cục bộ
-            send_msg(s, UPDATE, rnd, a.id, a.size)
+            t0 = time.perf_counter()
+            if a.fedavg:
+                local = model.sgd_train(model.from_bytes(data), x, y, seed=rnd * 100 + a.id)
+                payload = model.to_bytes(local)
+            else:
+                payload = None
+            spent = time.perf_counter() - t0
+            if spent > a.train:
+                print(f"[client {a.id}] round {rnd}: train {spent:.2f} s > {a.train} s",
+                      file=sys.stderr, flush=True)
+            time.sleep(max(0.0, a.train - spent))   # cố định T_train cho mọi vòng
+            send_msg(s, UPDATE, rnd, a.id, a.size, payload)
         # ACK của server: kết thúc vòng, chờ vòng sau
     s.close()
 

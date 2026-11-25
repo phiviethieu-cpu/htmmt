@@ -28,6 +28,7 @@ SNAPS = [
     ("code/run_experiments.py", "run_experiments.py", "run_experiments", PythonLexer),
     ("code/summarize.py", "summarize.py", "summarize", PythonLexer),
     ("code/model.py", "model.py", "model", PythonLexer),
+    ("code/pcap_overhead.py", "pcap_overhead.py", "pcap_overhead", PythonLexer),
     ("tools/snippets/setup.sh", "Terminal: cài đặt và chạy thí nghiệm", "setup", BashLexer),
     ("tools/snippets/run_all.sh", "Terminal: chạy toàn bộ kịch bản", "run_all", BashLexer),
     ("tools/snippets/tcpdump.sh", "Mininet CLI: bắt gói", "tcpdump", BashLexer),
